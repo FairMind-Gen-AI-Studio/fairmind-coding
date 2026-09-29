@@ -16,7 +16,7 @@
 # own ledgers only when this session IS that live loop — which is TWO claims,
 # WHICH loop and WHOSE session, so a live loop-state at base_path settles
 # neither on its own. For the routed cases read resolve_loop_context; the plugin
-# CLAUDE.md (Interactive mode vs loop mode) holds the documented table. This
+# INTERNALS.md (Capture routing) holds the documented table. This
 # header carries the rule, not the list. The liveness gate and the locked append+window-safe rotation
 # both live in scripts/_loop_ledger.py (resolve_loop_context / append_row, shared
 # with capture-subagent-tokens.sh, so the two can never drift). Every row carries
@@ -115,8 +115,8 @@ if isinstance(ti, dict):
 # that decision — ONE branch here, and no per-destination boolean to keep in
 # step. Which shapes reach it is deliberately not restated here: that list has
 # grown every round, and a stale copy in a hook reads as a rule the hook
-# enforces. Read it in resolve_loop_context, or in the plugin CLAUDE.md table
-# that declares itself the authority on the same question. A directory cannot collide with a
+# enforces. Read it in resolve_loop_context, or in the plugin INTERNALS.md
+# Capture routing table. A directory cannot collide with a
 # ref-named ledger because a ref can never name a path inside one (sanitize maps
 # / to -), including the loop whose task_ref is absent and which therefore
 # writes session.jsonl itself. Sharing a file cost 901 evicted rows in the JC8

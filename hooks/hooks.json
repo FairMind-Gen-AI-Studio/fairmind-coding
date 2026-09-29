@@ -45,8 +45,21 @@
         "hooks": [
           {
             "type": "command",
+            "command": "\"$CLAUDE_PLUGIN_ROOT\"/hooks/scripts/inject-context.sh check",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
             "command": "\"$CLAUDE_PLUGIN_ROOT\"/hooks/scripts/inject-context.sh",
-            "statusMessage": "Loading FairMind context..."
+            "statusMessage": "Loading FairMind context...",
+            "timeout": 5
           }
         ]
       }

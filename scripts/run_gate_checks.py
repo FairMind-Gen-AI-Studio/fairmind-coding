@@ -3732,8 +3732,8 @@ def _sync_active_context_mode(cwd, state_path):
     #     `{base_path, project_id, session_mindstreamId}` — became `closed` on
     #     the first Stop-hook engine run that could reach a terminal loop-state
     #     at its `base_path`, and `check-journal.sh` then stood the journal gate
-    #     down for the rest of the session. That gate is a CLAUDE.md "Cannot
-    #     proceed if" contract, so this silently retired an enforcement rule.
+    #     down for the rest of the session. That gate is an enforcement rule the
+    #     sub-agent cannot finish without, so this silently retired it.
     #   * the mirror: a leftover `running` loop-state flipped a
     #     `/fairmind-develop` run's `interactive` marker to `loop`, which enables
     #     `capture-orchestrator-tokens.sh` and stamps every row `mode: "loop"`.

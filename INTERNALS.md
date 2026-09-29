@@ -40,7 +40,7 @@ the repository's root `.gitignore`.
 | --- | --- |
 | `front-desk-banner.sh`, `loop-banner.sh` | UserPromptExpansion: command banners |
 | `validate-fairmind-path.sh` | PreToolUse: enforce scoped workspace writes |
-| `inject-context.sh` | PreToolUse: pass workspace context into subagents |
+| `inject-context.sh` | SubagentStart: pass workspace context into subagents; PreToolUse (`check`): refuse a dispatch whose context cannot be read |
 | `trace-op.sh` | PostToolUse: record tool operations |
 | `loop-check.sh` | Stop: evaluate the active loop gate |
 | `capture-orchestrator-tokens.sh` | Stop: record main-agent usage for the owning armed loop |

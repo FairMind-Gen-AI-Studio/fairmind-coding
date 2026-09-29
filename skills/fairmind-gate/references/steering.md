@@ -4,7 +4,7 @@ A loop's checks are a machine-checkable stop condition; `steering.md` is the one
 
 ## What it is, where it lives
 
-`${FAIRMIND_BASE}/steering.md` — a plain-text/Markdown file, always under `.fairmind/` (per the workspace contract in this plugin's `CLAUDE.md` → **Workspace contract**: `.fairmind/<project-slug>/<session-slug>/`). It carries whatever a human wants to say to the maker mid-loop, in the human's own words: a redirect ("stop chasing check X, look at Y instead"), a do-not-repeat ("the last three iterations tried the same fix — don't try it again"), or a context drop (a fact, a link, a constraint the human knows and the loop doesn't).
+`${FAIRMIND_BASE}/steering.md` — a plain-text/Markdown file, always under `.fairmind/` (per the workspace contract in this plugin's `README.md` → **Workspace contract**: `.fairmind/<project-slug>/<session-slug>/`). It carries whatever a human wants to say to the maker mid-loop, in the human's own words: a redirect ("stop chasing check X, look at Y instead"), a do-not-repeat ("the last three iterations tried the same fix — don't try it again"), or a context drop (a fact, a link, a constraint the human knows and the loop doesn't).
 
 ## Who writes it, who reads it
 
@@ -12,7 +12,7 @@ A loop's checks are a machine-checkable stop condition; `steering.md` is the one
 
 **The maker (`software-engineer`) reads it — at the start of every iteration**, before reading the prior gate feedback and before touching any code (`agents/software-engineer.md` → "Loop mode: the maker" → step 1). Reading it first means a human course-correction takes effect on the very next turn, not after the maker has already re-walked the same dead end the steering note was written to stop. This protocol step is the *primary* mechanism — it holds even if the hook below were absent or misconfigured.
 
-Mechanically, `hooks/scripts/inject-context.sh` (PreToolUse on `Task`) reinforces it, belt-and-suspenders: it rewrites the dispatched sub-agent's own Task `prompt` via `hookSpecificOutput.updatedInput`, prepending the file's content alongside the existing `FAIRMIND_BASE=…` context line before the Task runs. That is a deliberate choice, not the obvious one — a PreToolUse hook's plain stdout on exit 0 is written to the debug log only and is never added to any model's context (the Claude Code hooks docs name `UserPromptSubmit`/`UserPromptExpansion`/`SessionStart` as the only stdout-to-context events), and a Task sub-agent's context is built solely from the Task tool's `prompt` argument plus its own agent-definition file. Printing the text would have been silently inert; rewriting the prompt via `updatedInput` is what actually lands it in front of the sub-agent. A missing or empty `steering.md` is a silent skip in that hook, never an error: the channel is optional by design.
+Mechanically, `hooks/scripts/inject-context.sh` (on `SubagentStart`) reinforces it, belt-and-suspenders: it adds the file's content to the starting sub-agent's context as `hookSpecificOutput.additionalContext`, right after the `FAIRMIND_BASE=…` context line. Printing the text would not do: on that event, as on most, a hook's plain stdout goes to the debug log and reaches no model. The hook never rewrites the dispatch itself. A missing or empty `steering.md` is a silent skip in that hook, never an error: the channel is optional by design.
 
 ## The hard boundary: outside the checked surface
 

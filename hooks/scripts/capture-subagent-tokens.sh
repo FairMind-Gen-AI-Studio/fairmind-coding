@@ -36,8 +36,8 @@
 #     routes to `.fairmind/no-loop/`. A context with no loop-state in either
 #     ledger home is not routed at all and keeps the ordinary ledgers. It
 #     records nothing only outside a workspace. Which shape lands where is the
-#     plugin `CLAUDE.md` table (Interactive mode vs loop mode), which declares
-#     itself the authority, and `resolve_loop_context` implements it. This
+#     plugin `INTERNALS.md` table (Capture routing), and `resolve_loop_context`
+#     implements it. This
 #     header names the rule, not the list, because the list has grown every
 #     round — so read the destination off one of those two, never off here.
 #     ⚠️ check-journal.sh detects the same condition and draws the OPPOSITE
@@ -139,7 +139,8 @@ if not state["has_usage"]:
 # A ROUTED context names the directory its rows belong in — ONE branch, and the
 # resolver owns the decision, so no shape reaching it is spelled out here: that
 # list has grown every round, so a copy here would be a second thing to forget.
-# It is written out in resolve_loop_context and in the plugin CLAUDE.md table.
+# It is written out in resolve_loop_context and in the plugin INTERNALS.md
+# Capture routing table.
 # The other arm is the contexts OWN ledger, and this hook no longer spells that
 # join either: loop_ledger_path owns it — the empty-base fallback to
 # `.fairmind/`, which is the base_path commands/fairmind-loop.md DOCUMENTS, and
