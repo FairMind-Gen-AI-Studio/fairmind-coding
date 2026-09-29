@@ -84,7 +84,7 @@ payload built from the same session's spooled row.
 Why the row needs them at all: see `register_session`.
 
 T2-C3 adds a SECOND, INVERTED lane on top of all of the above: the ordered event
-skeleton. Ambient capture is on-by-default-with-an-off-switch; the skeleton is
+skeleton. Ambient capture is opt-in, and so is the skeleton: it is
 OFF unless `event_skeleton` is the explicit boolean `true` in the repo file AND
 not the explicit `false` there — off beats on, the same rule `is_opted_out`
 already applies to ambient capture. `event_skeleton_consent` is the ONE function
@@ -186,7 +186,7 @@ from _consent_authority import (  # noqa: E402,F401 — re-exported, one definit
     data_dir, _registry_path, _notice_marker_path, plugin_version,
     _GIT_REV_PARSE_CACHE, _git_rev_parse, _tenancy_from_common, resolve_tenancy,
     consent_config_path, _config_disables, _config_enables_event_skeleton,
-    event_skeleton_enabled,
+    ambient_local_answer, event_skeleton_enabled,
     EVENTS_CONSENT_GRANTED, EVENTS_CONSENT_REVOKED, EVENTS_CONSENT_INDETERMINATE,
     EVENTS_CONSENT_SCOPE_REPO, EVENTS_CONSENT_SCOPE_UNKNOWN_REPO, _NO_CONFIG,
     event_skeleton_consent, skeleton_consent_resolver, is_opted_out,
@@ -2187,17 +2187,15 @@ def notice_message():
     that does nothing is worse than naming none.
 
     AND IT DOES NOT SAY THE COMPANY SET IT "IN" THAT FILE, which the first draft
-    of this rewrite did. Ambient capture is ON BY DEFAULT wherever a per-project
-    Fairmind MCP is configured: `_config_disables` returns False for a MISSING
-    path, so the ordinary armed repo has no `.fairmind-insights.json` at all
-    (measured 2026-07-27: `repo=absent -> is_opted_out=False`, and the notice
-    fires). Attributing the decision to the contents of a file that is usually
-    absent is the same defect class as the off switch that was a no-op. What is
-    true, and all this says, is that the SWITCH lives there and nowhere personal.
+    of this rewrite did. Since 2026-09-29 ambient capture is opt-in — the file
+    must say `"ambient_capture": true` — but a central `forced_on` captures in a
+    repository whose file says nothing at all, so the decision is not always in
+    the file's contents. What is true in every case, and all this says, is that
+    the SWITCH lives there and nowhere personal.
 
     IT NOW SAYS THE RECORDS LEAVE THE MACHINE, which it did not until
-    2026-07-30. This is the ON-BY-DEFAULT lane, so it is the notice most readers
-    ever see, and it announced what was collected while saying nothing about
+    2026-07-30. This is the notice every capturing repository shows, and it
+    announced what was collected while saying nothing about
     egress at all — an omission rather than a false claim, which is why it
     survived four rounds of correcting false ones. `cmd_sweep` calls `run_sweep`
     and then `run_drain` on the next line, in the detached, niced process the
@@ -2222,7 +2220,7 @@ def notice_message():
     in `fairmind-sync-insights.md`). So a reader asking the question the sentence
     exists to answer — when does my data leave, and what sends it — was told
     nothing leaves while they work. Reassuring direction, on timing, in the
-    on-by-default lane. The fix is the SENDER attribution only: no content
+    lane that runs in the background. The fix is the SENDER attribution only: no content
     enumeration was added, because every new sentence is a new claim owing its
     own evidence and this notice's history is rounds eaten by exactly that.
 
@@ -3155,7 +3153,7 @@ def _policy_status_lines(toplevel):
     "default" is each feature's shipped posture where no layer speaks: judge
     ON (advisory — only an explicit boolean `false` under the repo file's
     `judge` key silences it, the mirror of the `is True` idioms elsewhere) and
-    ambient capture ON-where-configured. The judge line reports the POLICY
+    ambient capture OFF (it is opt-in). The judge line reports the POLICY
     layers only: the `FM_JUDGE_HOOK` env escape hatch beats central, but it is
     per-process and this verb cannot see the environment of the session that
     matters, so naming it here would be a guess dressed as a fact.
@@ -3191,8 +3189,8 @@ def _policy_status_lines(toplevel):
 
     # The TRI-STATE features share one ladder: central force, then the repo
     # file's own key, then the on-by-default floor. `ambient_capture` below is
-    # deliberately NOT folded in — it reads `file_present`/`is_opted_out`
-    # instead of `cfg`, and that difference IS its fail-closed rule.
+    # deliberately NOT folded in — it reads `ambient_local_answer` instead of
+    # `cfg`: its default is OFF, and its fail-closed rule lives there.
     # ⚠️ BOTH lookups take `key`, the CONFIG key — never `cli`, the command-line
     # word. They are equal for `judge` and `brain` and NOT for `ambient`
     # (`ambient_capture`), so a version of this loop keyed on the CLI word works
@@ -3218,13 +3216,15 @@ def _policy_status_lines(toplevel):
         "ambient_capture", cache, now)
     if central in ("on", "off"):
         lines.append(f"  ambient capture: {central} — {forced_src(source)}")
-    elif file_present:
-        # `is_opted_out` owns the fail-closed reading of every present-file
-        # shape (malformed included), so the effective state comes from it.
-        lines.append("  ambient capture: %s — repo file"
-                     % ("off" if is_opted_out(toplevel) else "on"))
     else:
-        lines.append("  ambient capture: on — default")
+        # `ambient_local_answer` owns the fail-closed reading of every shape
+        # (malformed included): None is the default, anything else the file.
+        answer = ambient_local_answer(toplevel)
+        if answer is None:
+            lines.append("  ambient capture: off — default")
+        else:
+            lines.append("  ambient capture: %s — repo file"
+                         % ("on" if answer else "off"))
 
     freshness = _plugin_policy.cache_freshness(cache, now)
     fetched_raw = cache.get("fetched_at") if isinstance(cache, dict) else None
@@ -3469,8 +3469,8 @@ def _content_status_lines(tenancy):
 #: CLI word -> (config key, is it tri-state?). ONE table, so adding a feature
 #: cannot leave the second question unanswered: a feature is tri-state when it
 #: can genuinely hold "no opinion", and `unset` then REMOVES the key and an
-#: absent key means on. `ambient_capture` is not one of them — a file that
-#: exists without it fails closed to OFF, which is why its `unset` writes `true`
+#: absent key means on. `ambient_capture` is not one of them — it is opt-in, so
+#: its local default is OFF, and its `unset` writes that default (`false`)
 #: instead. Carried beside the key rather than in a second set because a new
 #: feature added to one table and forgotten in the other would silently inherit
 #: whichever branch is `else`, which is the outcome this distinction exists to
@@ -3483,9 +3483,9 @@ _SET_POLICY_FEATURES = {
 }
 
 #: The closed value vocabulary of the verb. `unset` is not a third state ON
-#: DISK — it removes the key for judge, and for ambient it is `on` under a
-#: printed note (see `cmd_set_policy`): a file that exists cannot express "no
-#: opinion" about ambient, because `_config_disables` fails closed.
+#: DISK — it removes the key for judge, and for ambient it is `off` under a
+#: printed note (see `cmd_set_policy`): ambient capture is opt-in, so its local
+#: default is off and `unset` writes that default out loud.
 _SET_POLICY_VALUES = ("on", "off", "unset")
 
 
@@ -3539,14 +3539,11 @@ def cmd_set_policy(operands, cwd=None):
        that state, so refusing there too would lock the developer out.
 
     THE FOOTGUN RULE: every write emits `ambient_capture` EXPLICITLY as a
-    boolean, never a file without it. `_config_disables` enables capture only
-    on the explicit boolean `True`, so a `judge` op that created a file
-    carrying only `{"judge": false}` would silently switch AMBIENT CAPTURE OFF
-    for the whole repository — a second feature disabled by a command about the
-    first. What the explicit value must BE is the current EFFECTIVE state, not
-    a constant: an absent file means capture ON, so a new file gets `true`; a
-    present file with no `ambient_capture` key already reads as OFF, so it gets
-    `false`. Both cases print a note saying which one happened.
+    boolean, never a file without it, so the file always says what the plugin
+    reads. A missing key is written as `false`: a repository that has not opted
+    in reads as OFF whether it had no file or a file without the key, and a
+    command about the judge must never be the thing that turns ambient capture
+    ON. A note says so.
 
     Unknown keys survive: the file is round-tripped through `json`, so
     `consent`, `event_skeleton` and any key a future slice adds keep their
@@ -3631,42 +3628,30 @@ def cmd_set_policy(operands, cwd=None):
     # rather than falling out of an `else`, so the ambient-specific `unset` NOTE
     # below reaches ambient alone.
     notes = []
-    if tristate:
-        if args.value == "unset":
-            cfg.pop(key, None)
-        else:
-            cfg[key] = args.value == "on"
+    if tristate and args.value == "unset":
+        cfg.pop(key, None)
     else:
-        cfg[key] = args.value != "off"
-        if args.value == "unset":
-            notes.append(
-                "Note: ambient has no local 'no opinion'. An ABSENT "
-                ".fairmind-insights.json defaults to capture ON, but a file "
-                "that exists and does not carry ambient_capture as the "
-                "explicit boolean true fails closed to OFF — so unset is "
-                "written as true, exactly equivalent to on. To leave this "
-                "repository with no local answer at all, delete the file (only "
-                "if it carries nothing else) and commit the deletion.")
+        cfg[key] = args.value == "on"
+    if not tristate and args.value == "unset":
+        notes.append(
+            "Note: ambient capture is opt-in, so its local default is OFF "
+            "— with no file and in a file without the key alike — and "
+            "unset is written as false, exactly equivalent to off. Only an "
+            "explicit true, or a central force, turns it on.")
 
     # THE FOOTGUN RULE. Reachable only on a tri-state op (an ambient op just
     # wrote a boolean, and the wrong-typed shape was refused above), so what
-    # lands here is a missing key, and the value chosen is the effective state
-    # it already had.
+    # lands here is a missing key, written as false: not opted in reads as OFF,
+    # and a command about another feature must never opt the repository in.
     if not isinstance(cfg.get("ambient_capture"), bool):
-        cfg["ambient_capture"] = not present
-        if present:
-            notes.append(
-                "Note: the file was present without an explicit "
-                "ambient_capture, which the plugin already read as capture OFF "
-                "(fail-closed). It is now written as false — the same "
-                "effective state, said out loud. Use --set-policy ambient on "
-                "to turn capture on.")
-        else:
-            notes.append(
-                "Note: there was no .fairmind-insights.json. An absent file "
-                "means ambient capture is ON, and a file that exists without "
-                "an explicit ambient_capture means OFF — so true was written "
-                "to keep this repository's capture exactly where it was.")
+        cfg["ambient_capture"] = False
+        notes.append(
+            "Note: this repository had not opted in to ambient capture (%s), "
+            "which the plugin reads as capture OFF. It is now written as false "
+            "— the same effective state, said out loud. Use --set-policy "
+            "ambient on to turn capture on."
+            % ("the file carried no ambient_capture" if present
+               else "there was no .fairmind-insights.json"))
 
     _write_consent_config(path, cfg)
 

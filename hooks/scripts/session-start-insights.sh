@@ -5,8 +5,9 @@
 # loop mode). It shells to scripts/_insights_session.py, which:
 #   - fail-CLOSES unless this repo has a PER-PROJECT Fairmind MCP configured (a
 #     user-global Fairmind entry MUST NOT arm capture — plan V7 "no honest
-#     tenant", the privacy guard) and is not switched off in the COMMITTABLE
-#     repo-root .fairmind-insights.json — the only scope either switch reads
+#     tenant", the privacy guard) and is switched ON — `"ambient_capture": true`
+#     in the COMMITTABLE repo-root .fairmind-insights.json, or a central force
+#     (ambient capture is opt-in since 2026-09-29) — the only scope either switch reads
 #     since 2026-07-27, because the decision is the company's and not the
 #     developer's (the per-user ~/.fairmind/insights-config.json is inert);
 #   - on capture, registers the session (the only repo IDENTIFIER is the opaque

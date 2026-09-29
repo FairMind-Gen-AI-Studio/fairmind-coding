@@ -106,8 +106,8 @@ The optional `consent` object has `merged_diffs`, `rejected_proposals` and
 `generation_context` switches. An absent file or absent block defaults all
 three classes on; a present block grants each class only for literal `true`.
 Malformed input grants no classes. This narrows an existing lane grant; it does
-not enable capture. A file that exists must also carry `"ambient_capture": true`
-to enable ambient capture. See the README for each class's fields and content modes.
+not enable capture. Ambient capture is opt-in: only `"ambient_capture": true`
+(or a central force) enables it, and an absent file leaves it off. See the README for each class's fields and content modes.
 
 At delivery, an explicit `false` can discard data governed by that switch;
 unreadable or wrong-typed configuration retains pending data unsent. Collection

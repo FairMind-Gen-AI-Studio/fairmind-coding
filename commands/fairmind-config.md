@@ -15,7 +15,8 @@ this order:
    window. When set it **wins over both layers below**.
 2. **Local file** — `.fairmind-insights.json` at the repo root, the
    committable per-repo choice.
-3. **Default** — both on.
+3. **Default** — brain on; ambient capture OFF — it is opt-in, and only an
+   explicit `"ambient_capture": true` (or a central force) turns it on.
 
 `/fairmind-config` is the one command that reads and writes this: `status`
 (default) reports the effective answer per feature and which layer decided it;
@@ -41,9 +42,9 @@ No argument is the same as `status`. `brain`'s own key in the local file is
 line say `ambient`.
 
 ⚠️ **The two differ on what `unset` means, and the verb says which it did.** For
-`brain`, `unset` REMOVES the key and an absent key means on. For `ambient` a
-file that exists without an explicit `ambient_capture: true` already reads as
-off, so its `unset` writes `true` rather than removing anything.
+`brain`, `unset` REMOVES the key and an absent key means on. For `ambient` the
+local default is off, so its `unset` writes `false` — the default, said out
+loud — rather than removing anything.
 
 ## `status` (default)
 
@@ -69,7 +70,8 @@ source, in plain language:
   overridden and cannot change this from here.
 - `repo file` — `.fairmind-insights.json` at the repo root decided: any shape
   other than an explicit `"ambient_capture": true` reads as off, fail-closed.
-- `default` — neither layer spoke, and ambient capture is on.
+- `default` — neither layer spoke: brain is on, and ambient capture is off
+  (not opted in).
 
 Also report the `central policy cache:` line as-is (translated to prose) —
 `none`, `fetched <iso> (fresh)`, or `fetched <iso> (stale — …)`. A stale or
@@ -138,10 +140,9 @@ byte-identical:**
 - `brain unset` → removes the `brain` key entirely (an absent key means on).
 - `ambient on` → sets `"ambient_capture": true`.
 - `ambient off` → sets `"ambient_capture": false`.
-- `ambient unset` → sets `"ambient_capture": true` (the file cannot express
-  "no opinion" once it exists — an absent file is the only shape that means
-  that — so `unset` here is written identically to `on`, with a note
-  explaining why).
+- `ambient unset` → sets `"ambient_capture": false` (the local default is
+  off, with no file and in a file without the key alike, so `unset` here is
+  written identically to `off`, with a note explaining why).
 
 Unknown keys (`consent`, `event_skeleton`, anything a future slice adds)
 survive with their values and order; only the formatting is normalized to

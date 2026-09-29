@@ -242,8 +242,8 @@ def resolve_tenancy(cwd):
 
 
 # --------------------------------------------------------------------------- #
-# The off switch, REPO SCOPE ONLY (R3 as narrowed by the 2026-07-27 enterprise
-# policy). Malformed config -> fail closed (treat as opted out).
+# The ambient switch, REPO SCOPE ONLY (R3 as narrowed by the 2026-07-27
+# enterprise policy). Opt-in since 2026-09-29; malformed config -> fail closed.
 # --------------------------------------------------------------------------- #
 
 def consent_config_path(toplevel):
@@ -255,7 +255,7 @@ def consent_config_path(toplevel):
     `_plugin_policy.INSIGHTS_CONFIG_BASENAME` — the one spelling every reader
     of this file shares, including the judge Stop hook, which lives outside
     this module and cannot call this helper without paying its import cost.
-    Every switch here — the ambient opt-out, the event-skeleton enablement, the
+    Every switch here — the ambient opt-in, the event-skeleton enablement, the
     three-state skeleton read, the consent classes and their two resolvers —
     used to build the path by hand with the filename as an inline literal,
     which is a rename nobody can do in one edit and a typo no test would catch
@@ -271,43 +271,46 @@ def consent_config_path(toplevel):
     return os.path.join(toplevel, _plugin_policy.INSIGHTS_CONFIG_BASENAME)
 
 
-def _config_disables(path):
-    """An opt-out config at `path` DISABLES ambient capture UNLESS it exists,
-    parses as a dict, and carries `ambient_capture` as the explicit boolean True.
-    Every other present-file shape disables (fail closed / privacy-preserving):
-    boolean False, a wrong-typed value (the string "false", 0, null, an array),
-    an unreadable/malformed file, or a non-dict. Only an ABSENT file (or an
-    explicit boolean True) leaves capture enabled — a wrong-typed value must never
-    silently ENABLE capture (N6)."""
+def _config_answer(path, key):
+    """What the config at `path` says about the opt-in `key`: None when the file
+    or the key is absent — nobody said anything — else whether the value is the
+    explicit boolean True. A file that does not parse as a dict is an attempt at
+    a decision, so it answers False. `is True`, never truthiness: `1` and
+    `"true"` answer False, because a switch a typo can flip is not a decision
+    anyone made, and a wrong-typed value must never ENABLE capture (N6)."""
     if not os.path.isfile(path):
-        return False
+        return None
     cfg = _read_json(path)
     if not isinstance(cfg, dict):
-        return True  # unreadable/malformed/non-dict -> fail closed
-    return cfg.get("ambient_capture") is not True  # only explicit True enables
+        return False
+    if key not in cfg:
+        return None
+    return cfg[key] is True
+
+
+def _config_disables(path):
+    """True unless the config at `path` carries `ambient_capture` as the
+    explicit boolean True. Ambient capture is OPT-IN: an absent file, a file
+    without the key, and every other value disable it."""
+    return _config_answer(path, "ambient_capture") is not True
 
 
 def _config_enables_event_skeleton(path):
-    """T2-C3, and it is the MIRROR IMAGE of `_config_disables` above, not a copy
-    of it. Ambient capture is on-by-default-with-opt-out, so `_config_disables`
-    fails closed by treating every ambiguous shape as "disabled". The event
-    skeleton is the opposite: OFF unless someone explicitly turned it on. Both
-    functions therefore resolve every ambiguous shape to LESS capture — which is
-    why they cannot share an implementation, and why this one's default is the
-    negation of that one's.
+    """T2-C3: True only when the config at `path` carries `event_skeleton` as
+    the explicit boolean True — the same opt-in reading as ambient capture,
+    under its own key."""
+    return _config_answer(path, "event_skeleton") is True
 
-    True ONLY when `path` exists, parses as a dict, and carries `event_skeleton`
-    as the explicit boolean `True`. Absent file, unreadable file, non-dict,
-    `False`, and every wrong-typed truthy value (`"true"`, `1`, `"yes"`, `[]`)
-    are all OFF. `1` is the one worth naming: `cfg.get(...) is True` rejects it,
-    while a bare `if cfg.get(...)` would have accepted it — and a switch a typo
-    can flip is not a decision anyone made."""
-    if not os.path.isfile(path):
+
+def ambient_local_answer(toplevel):
+    """The repository file's own answer on ambient capture: True (opted in),
+    False (said no — including a malformed file or a wrong-typed value), or None
+    (said nothing: no file, or no `ambient_capture` key). An unresolvable
+    toplevel answers False, fail closed. The gate's reason and the status line
+    both read this, so neither re-derives the default."""
+    if not toplevel:
         return False
-    cfg = _read_json(path)
-    if not isinstance(cfg, dict):
-        return False
-    return cfg.get("event_skeleton") is True
+    return _config_answer(consent_config_path(toplevel), "ambient_capture")
 
 
 def event_skeleton_enabled(toplevel):
@@ -547,7 +550,8 @@ def skeleton_consent_resolver():
 
 
 def is_opted_out(toplevel):
-    """True iff AMBIENT capture is switched off for this repo, read from the ONE
+    """True iff AMBIENT capture is OFF for this repo — switched off, or never
+    opted in (it is opt-in since 2026-09-29) — read from the ONE
     scope that can express a company decision: the committable repo-root
     `.fairmind-insights.json` (resolved from the git TOPLEVEL, so a launch from a
     subdirectory still honors it). An unresolvable toplevel fails closed (treated
@@ -592,23 +596,13 @@ def is_opted_out(toplevel):
 # pinned inert in BOTH directions by an exhaustive matrix test; nothing here
 # re-introduces it. "Both scopes" in the JC5 brief means both LANES.
 #
-# ⚠️ THE MISSING-FILE CASE IS THE ONE THAT DECIDES WHETHER THIS IS SHIPPABLE, and
-# the intuitive answer is wrong. MEASURED 2026-08-14 over this machine:
-#
-#     $ find ~/Projects -maxdepth 3 -name .fairmind-insights.json | wc -l
-#     0
-#     $ ls -la ~/.fairmind/insights/rollups/
-#     ... 2 spool files, the newer written the same day
-#
-# — no repo carries the file, while capture is demonstrably live. Verified in
-# code, not inferred:
-# `_config_disables` above returns False for an absent file, i.e. ambient capture
-# is ON by default with an off-switch, and the loop lane has never had a consent
-# gate at all. So on both lanes "no file" already means "everything these three
-# classes describe is being sent". Returning "grant nothing" for an absent file
-# would be a total capture regression on 100% of the real population, dressed as
-# a privacy win. The class system NARROWS A GRANT THAT ALREADY EXISTS; it does
-# not re-ask for it.
+# THE MISSING-FILE CASE: an absent file grants all three classes. The loop lane
+# has no gate, so there "no file" means the record is sent and the classes
+# narrow that grant rather than re-ask for it. The ambient lane is opt-in
+# (since 2026-09-29), so without the file it captures nothing for them to apply
+# to unless the platform forces it on. (Until then ambient capture was on by default, which is why this rule was
+# written for both lanes — returning "grant nothing" would have been a capture
+# regression dressed as a privacy win.)
 #
 # AND "GRANTED NOTHING" MUST STAY DISTINGUISHABLE FROM "NOBODY ASKED". That is
 # what `basis` is for: `["A","B","C"] + explicit` and `["A","B","C"] + no_config`
@@ -1226,8 +1220,13 @@ def evaluate_gate(cwd):
                 # the platform's decision beats the repo file in both directions.
                 return Decision(True, tenancy, "forced_on", toplevel)
             return Decision(False, tenancy, "forced_off", toplevel)
-    if is_opted_out(toplevel):
-        return Decision(False, tenancy, "opted_out", toplevel)
+    answer = ambient_local_answer(toplevel)
+    if answer is not True:
+        # Two reasons for one outcome, because a person reads the reason: a
+        # repository whose file says nothing about ambient capture never
+        # decided, and calling that an opt-out would put words in its mouth.
+        return Decision(False, tenancy,
+                        "not_opted_in" if answer is None else "opted_out", toplevel)
     return Decision(True, tenancy, "capture", toplevel)
 
 
