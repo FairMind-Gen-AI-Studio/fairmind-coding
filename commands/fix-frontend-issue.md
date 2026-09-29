@@ -1,5 +1,5 @@
 ---
-allowed-tools: Read, Glob, TodoWrite, Task, Bash, Edit, MultiEdit, mcp_sequential-thinking
+allowed-tools: Read, Glob, TodoWrite, Task, mcp_sequential-thinking
 argument-hint: "[issue-file-path or issue-name]"
 description: Orchestrates issue resolution by implementing fixes and validating them with the QA Engineer's Playwright run
 model: claude-sonnet-5

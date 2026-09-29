@@ -1,3 +1,7 @@
+---
+description: Detect, analyze and fix failing CI/CD checks on the current branch
+---
+
 # Fix CI
 
 Auto-detect, analyze, fix CI/CD failures on any branch.

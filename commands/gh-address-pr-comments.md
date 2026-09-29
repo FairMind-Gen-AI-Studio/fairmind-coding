@@ -1,3 +1,8 @@
+---
+description: Walk through the open review comments on a GitHub pull request and resolve them one by one
+argument-hint: "[pr-number]"
+---
+
 # Address PR Comments Command
 
 Interactive PR comment resolution workflow.

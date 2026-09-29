@@ -1,6 +1,6 @@
 ---
 description: The Fairmind coding front desk — pick a job (loop mode, develop with the team, import a ticket, harness audit, requirements from the company brain) and it launches the matching command or skill; type anything else to reach the rest of the toolkit.
-allowed-tools: AskUserQuestion, Read, Skill
+allowed-tools: AskUserQuestion, Read
 ---
 
 # fairmind-coding

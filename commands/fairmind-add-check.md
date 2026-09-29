@@ -1,6 +1,6 @@
 ---
 description: Author a custom loop-mode check for a criterion the five built-in types do not cover - interviews the scenario, emits an open-contract descriptor, and runs the admission self-test that verifies the verifier before the check can gate
-allowed-tools: Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/admit_check.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/run_gate_checks.py:*), Read, Write, Edit, Grep, Glob
+allowed-tools: Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/admit_check.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/run_gate_checks.py:*), Read, Edit(.fairmind/**), Grep, Glob
 ---
 
 # fairmind-add-check

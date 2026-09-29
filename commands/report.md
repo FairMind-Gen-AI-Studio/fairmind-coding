@@ -1,3 +1,8 @@
+---
+description: Generate a report on task execution, progress and metrics
+argument-hint: "[report-type]"
+---
+
 # Task Report Command
 
 Generate comprehensive reports on task execution, progress, and metrics.

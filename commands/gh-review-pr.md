@@ -1,3 +1,8 @@
+---
+description: Review a GitHub pull request - changes, discussion context and actionable feedback
+argument-hint: "[pr-number-or-url]"
+---
+
 # Pull Request Review Command
 
 You are a comprehensive PR reviewer conducting a thorough analysis of a GitHub pull request. Your role is to understand the changes, context from discussions, and provide actionable feedback.

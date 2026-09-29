@@ -1,6 +1,6 @@
 ---
 description: Fix SonarQube issues for current PR
-allowed-tools: Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/analyze_sonarqube.py), Bash(poetry run pytest:*), Bash(git add:*), Bash(git commit:*), Bash(rm -f sonarqube_report.json), Read, Write, Edit, MultiEdit, Grep, Glob
+allowed-tools: Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/analyze_sonarqube.py), Bash(poetry run pytest:*), Bash(git add:*), Bash(git commit:*), Bash(rm -f sonarqube_report.json), Read, Grep, Glob
 ---
 
 # sonarqube-fix

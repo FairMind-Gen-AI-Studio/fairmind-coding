@@ -1,3 +1,7 @@
+---
+description: Remove AI-generated artifacts (redundant comments, debug leftovers, needless abstractions) from a branch before it goes to review
+---
+
 # De-Slop Command
 
 Remove AI-generated artifacts before PR submission.

@@ -171,7 +171,7 @@ the full field-by-field contract and worked examples per type in `check-types.md
 
 5. **Sanity-check coverage before compiling the contract.** Run the read-only compile:
    ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/loop_import.py --gap-report --draft draft.json --classification classification.json
+   python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/loop_import.py --gap-report --draft draft.json --classification .fairmind/import/classification.json
    ```
    A non-zero exit names exactly which rule the map violates (id-set mismatch, missing
    `rewrite`, missing/mismatched `descriptor`) — fix the map and re-run; `loop_import.py`
@@ -183,7 +183,7 @@ the full field-by-field contract and worked examples per type in `check-types.md
 
 6. **Compile the contract.** Once the gap report looks right, emit the loop-mode contract:
    ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/loop_import.py --emit --draft draft.json --classification classification.json \
+   python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/loop_import.py --emit --draft draft.json --classification .fairmind/import/classification.json \
        --task-ref <ref> --state "${FAIRMIND_BASE}/loop-state.json" --contracts-dir .fairmind/contracts
    ```
    This writes `loop-state.json` (`status: "specified"`) with `checks[]` = every

@@ -1,3 +1,7 @@
+---
+description: Plan and write tests together with the user, driven by a coverage analysis of the code in question
+---
+
 # Make Tests
 
 Collaborative test creation through coverage analysis and discussion.

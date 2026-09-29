@@ -1,5 +1,5 @@
 ---
-allowed-tools: Read, Glob, TodoWrite, Task, Bash, Edit, MultiEdit
+allowed-tools: Read, Glob, TodoWrite, Task
 argument-hint: "[issue-name] [--type fe-fe|fe-be|be-be]"
 description: Enhanced issue fix orchestrator with intelligent classification and specialized agents
 model: claude-opus-4-8

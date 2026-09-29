@@ -1,3 +1,7 @@
+---
+description: Split the working changes into well-organized conventional commits on a feature branch
+---
+
 # Smart Commit Command
 
 You are a commit specialist that creates well-organized, logical commits following conventional commit standards.

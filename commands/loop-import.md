@@ -1,6 +1,6 @@
 ---
 description: Turn an external ticket into a compiled loop-mode contract - detect the input form, classify acceptance criteria with task-compilation, compile+emit via loop_import.py, present the gap report, then hand off to /fairmind-loop to arm
-allowed-tools: Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/loop_import.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/run_gate_checks.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/admit_check.py:*), Bash(gh issue view:*), Read, Write, Edit, Grep, Glob, Task
+allowed-tools: Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/loop_import.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/run_gate_checks.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/admit_check.py:*), Bash(gh issue view:*), Read, Edit(.fairmind/**), Grep, Glob, Task
 ---
 
 # loop-import
@@ -43,7 +43,7 @@ Loads the **`task-compilation`** skill (the judgment half) and, at the arm hando
      python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/loop_import.py --validate-draft --input draft.json
      ```
 
-2. **Classify the acceptance criteria** — the judgment half, per the `task-compilation` skill. Classify each criterion into `checked:<type>` / `evidence` / `unverifiable`, writing a classification map (`classification.json`) per `skills/task-compilation/references/gap-report.md`. **Ambiguity is resolved by interview, never by silent inference** — when a criterion could plausibly go more than one way, stop and put a bounded decision brief (2–4 concrete options + a recommendation) to the user rather than guessing a type or a threshold.
+2. **Classify the acceptance criteria** — the judgment half, per the `task-compilation` skill. Classify each criterion into `checked:<type>` / `evidence` / `unverifiable`, writing a classification map (`.fairmind/import/classification.json`) per `skills/task-compilation/references/gap-report.md`. **Ambiguity is resolved by interview, never by silent inference** — when a criterion could plausibly go more than one way, stop and put a bounded decision brief (2–4 concrete options + a recommendation) to the user rather than guessing a type or a threshold.
 
    🔴 **A ticket with NO acceptance criteria is design mode, not a mechanical fallback.** With nothing to classify, the extraction *becomes* the design step — and `task-compilation` is deliberately barred from designing, so the layering and error-semantics decisions get made by transcription and nobody reviews them. Write the design brief first (`fairmind-gate/references/design-brief.md`, at `${FAIRMIND_BASE}/design/<ref>.md`), then derive the criteria from **its** decisions and write them into the **draft's** `acceptance_criteria` before classifying. Not afterwards into `contract.criteria[]`: `loop_import.py` requires the classification map's id-set to equal the draft's exactly, and loosening that check to fit a late edit would undo "none silently dropped, none silently invented".
 
@@ -52,7 +52,7 @@ Loads the **`task-compilation`** skill (the judgment half) and, at the arm hando
 3. **Compile + emit.** Once the map looks right:
    ```bash
    python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/loop_import.py --emit \
-     --draft draft.json --classification classification.json \
+     --draft draft.json --classification .fairmind/import/classification.json \
      --task-ref <ref> --state "${FAIRMIND_BASE}/loop-state.json" \
      --contracts-dir .fairmind/contracts
    ```
