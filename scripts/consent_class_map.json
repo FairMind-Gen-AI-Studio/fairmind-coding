@@ -1,0 +1,930 @@
+{
+  "authored": "2026-08-14",
+  "authority": "Derived from the batched wire contract, sections F.1 (the vocabulary and the unclassified remainder) and F.5 (the withholding table and the class-B predicate). For the class ASSIGNMENT this file is now the authority: F.1 and F.5 disagreed with each other about `iteration_timeline` under class C -- F.1 assigns the cadence to C, F.5's table withholds nothing from that field under C -- which is exactly the disagreement a single artifact exists to make impossible. The contract remains authoritative for everything else. What this file does NOT do is report behaviour: it classifies fields. Whether a producer withholds what a class covers, and whether a store can delete it, is asserted by each repo's own tests over its own code and never by a sentence in here.",
+  "class_config_keys": "`config_key` is what a company writes in the committable repo-root `.fairmind-insights.json`; the LETTER is what travels on the wire and what a stored row records. One pairing, here, so the config reader and the map cannot drift -- the producer's test asserts this mapping against its own resolver.",
+  "classes": {
+    "A": {
+      "config_key": "merged_diffs",
+      "label": "merged diffs"
+    },
+    "B": {
+      "config_key": "rejected_proposals",
+      "label": "rejected proposals"
+    },
+    "C": {
+      "config_key": "generation_context",
+      "label": "generation context"
+    }
+  },
+  "doors": {
+    "contentRow": {
+      "collection": null,
+      "collection_resolved_from": "NOTHING. JC6 is capture only: the rows are written to a LOCAL compartment (`<data_dir>/insights/content/<tenancy>.jsonl`) and this build has no route that delivers them, so there is no store and no collection name to resolve. The door is documented here anyway, before the first byte exists, because the alternative is a body of captured content whose deletion key was never written down -- and the one thing this document exists to make possible is finding every field of a class when somebody revokes it.",
+      "deletion_key": [
+        "tenancy",
+        "loop_id",
+        "iteration_n"
+      ],
+      "deletion_key_why": "\ud83d\udd34 NOT the loop door's key. A loop execution is identified by `loop_id` alone; a captured row is one ITERATION of one loop, and two rows of the same loop differ only in `iteration_n`. A deletion job written against the loop door's key would delete a whole loop's captures when asked to delete one, or match nothing at all. `tenancy` leads because the compartment is per-tenant and it is the only repo identifier these rows carry.",
+      "fields": {
+        "at": {
+          "classes": [],
+          "wire": null,
+          "wire_absent": "Local row; no producer key. The instant the refused iteration was evaluated, copied from the loop's own audit row."
+        },
+        "baseline_ref": {
+          "classes": [],
+          "wire": null,
+          "wire_absent": "Local row; no producer key. A commit sha of the customer's own history, already in `iterations[].commit_sha` on the loop door under no class."
+        },
+        "classes": {
+          "classes": [],
+          "wire": null,
+          "wire_absent": "Local row; no producer key. The stamp is never governed by the classes it declares."
+        },
+        "commit_sha": {
+          "classes": [],
+          "wire": null,
+          "wire_absent": "Local row; no producer key."
+        },
+        "consent": {
+          "classes": [],
+          "wire": null,
+          "wire_absent": "Local row; no producer key. Same rule as the loop door's `consent`: the stamp itself carries no class."
+        },
+        "context": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "note": "\ud83d\udd34 A CLOSED VOCABULARY, NOT THE HARNESS'S PROSE. It carries check ids, verdicts, a fixed set of failure CATEGORIES and the banner KINDS -- never a `reason` string, never the feedback text, never a check's command line or its output. The reason strings are what forced this: the engine builds four of them by interpolating an exception whose message quotes its own input, and the evidence pair reads free prose out of an artifact an agent wrote. `content_capture._reason_category` is the table and its default is `other`, so an unrecognised reason contributes a word rather than itself.",
+          "wire": null,
+          "wire_absent": "Local row; no producer key."
+        },
+        "context_class": {
+          "classes": [],
+          "reclaimed_with": "C",
+          "wire": null,
+          "wire_absent": "Local row; no producer key. The per-field stamp that lets reclamation find class C's bytes; unclassified and deleted with it, see `diff_class`."
+        },
+        "diff": {
+          "classes": [
+            "B"
+          ],
+          "granularity": "field",
+          "note": "\ud83d\udd34 THE ONLY FIELD IN THIS DOCUMENT THAT CARRIES THE TEXT OF A CUSTOMER'S CODE. A unified diff of the refused iteration's mutation set against the arm baseline, produced by git, one call per path. It carries REMOVED lines as well as added ones, so a secret deleted during the loop is captured by the deletion -- stated in the consumer README and in the one-time notice, and not scrubbed. Structural exclusions only: a git-ignored file is never a mutation-set member, and a path marked `-diff` in .gitattributes contributes no bytes.",
+          "wire": null,
+          "wire_absent": "Local row; no producer key."
+        },
+        "diff_bytes": {
+          "classes": [
+            "B"
+          ],
+          "granularity": "field",
+          "note": "The size of the diff, kept even when the bytes are refused, so 'nothing to capture' stays distinguishable from 'too big to capture'. Class B because it measures class B's content.",
+          "wire": null,
+          "wire_absent": "Local row; no producer key."
+        },
+        "diff_class": {
+          "classes": [],
+          "reclaimed_with": "B",
+          "wire": null,
+          "wire_absent": "Local row; no producer key. The per-field stamp reclamation reads. UNCLASSIFIED because a stamp is never governed by the class it declares, and `reclaimed_with` because it is deleted alongside that class anyway: a stamp whose content is gone describes nothing."
+        },
+        "diff_omitted": {
+          "classes": [
+            "B"
+          ],
+          "granularity": "field",
+          "note": "WHY there are no diff bytes on a row where class B WAS granted -- `no_surviving_change` (the attempt was reverted, so the tree holds nothing) or `all_members_over_cap`. Its ABSENCE beside a missing `diff` means class B was simply not granted, which is a different fact and must not read as a failed capture.",
+          "wire": null,
+          "wire_absent": "Local row; no producer key."
+        },
+        "iteration_n": {
+          "classes": [],
+          "wire": null,
+          "wire_absent": "Local row; no producer key. Half the deletion key, and unclassified for the reason the loop door's `iter` is: withholding a class must not make the cardinality of the work unknowable."
+        },
+        "loop_id": {
+          "classes": [],
+          "wire": null,
+          "wire_absent": "Local row; no producer key. Computed by `loop_ledger._loop_id`, so a captured row joins the run ledger by the ledger's own key."
+        },
+        "mutation_signature": {
+          "classes": [
+            "B"
+          ],
+          "granularity": "field",
+          "note": "Class B, not unclassified, and NOT for the same reason the loop door's `mutationDivergence` is class C. This is the member list WITH PATHS -- file names of the customer's tree, one per rejected change -- plus a content hash each. Paths are not diff text, but they are the shape of the refused proposal, and they belong to the same grant that authorized its bytes.",
+          "wire": null,
+          "wire_absent": "Local row; no producer key."
+        },
+        "paths_over_cap": {
+          "classes": [
+            "B"
+          ],
+          "granularity": "field",
+          "note": "Which members were refused for size, and how big they were. Paths, so class B.",
+          "wire": null,
+          "wire_absent": "Local row; no producer key."
+        },
+        "paths_unreached": {
+          "classes": [
+            "B"
+          ],
+          "granularity": "field",
+          "note": "Members the whole-loop deadline was reached before diffing. Paths, so class B. Its own key rather than a sentinel inside `paths_over_cap`: 'too big to capture' and 'ran out of time' are different facts about the record and a reader cannot act on the first if the second is wearing its name.",
+          "wire": null,
+          "wire_absent": "Local row; no producer key."
+        },
+        "paths_unstable": {
+          "classes": [
+            "B"
+          ],
+          "granularity": "field",
+          "note": "Members whose bytes moved between the evaluation and the capture; their content is absent from the diff. Paths, so class B.",
+          "wire": null,
+          "wire_absent": "Local row; no producer key."
+        },
+        "purpose": {
+          "classes": [],
+          "note": "\ud83d\udd11 WHAT THE ROW MAY BE USED FOR, stamped at capture time. Collecting and using are two decisions, and this is the second one written down where it cannot be re-answered later from a config that has since changed. Unclassified because it is a statement ABOUT the row's governance, exactly like `consent` -- withholding it would leave content whose permitted use is unknown, which is worse than either answer.",
+          "wire": null,
+          "wire_absent": "Local row; no producer key."
+        },
+        "schema": {
+          "classes": [],
+          "wire": null,
+          "wire_absent": "Local row; no producer key."
+        },
+        "session_id": {
+          "classes": [],
+          "wire": null,
+          "wire_absent": "Local row; no producer key. The harness session that owned the loop; omitted, never null, when the gate was driven without one."
+        },
+        "tenancy": {
+          "classes": [],
+          "wire": null,
+          "wire_absent": "Local row; no producer key. The one-way hash of the checkout location, and the lead of the deletion key."
+        },
+        "toplevel": {
+          "classes": [],
+          "note": "\ud83d\udd11 WHICH CHECKOUT'S CONFIG AUTHORIZED THIS ROW, and it is what makes a revocation land where it was written. The compartment is keyed by TENANCY -- the git common dir -- which every linked worktree of one repository SHARES while each has its own toplevel and its own `.fairmind-insights.json`. Without it, a `false` written in one worktree strips that class from rows captured under another worktree's still-granting config. Unclassified for the reason `consent` is: it is a statement about the row's governance, and withholding it would leave content whose authorizing checkout is unknown -- which is worse than either answer. It is a path on the developer's own machine and it never leaves it; nothing delivers this door.",
+          "wire": null,
+          "wire_absent": "Local row; no producer key."
+        },
+        "tree_stability_unknown": {
+          "classes": [],
+          "note": "Set when it could not be determined whether a maker wrote DURING the check run (no trace, unresolvable root, unparseable timestamp). A caveat on the row's own reliability, carrying no customer data.",
+          "wire": null,
+          "wire_absent": "Local row; no producer key."
+        },
+        "verdicts": {
+          "classes": [
+            "B"
+          ],
+          "granularity": "field",
+          "note": "The refused iteration's own results, projected through `insights_flush_payload._iteration_result_wire` -- the SAME guard the loop door applies, imported rather than re-implemented. That matters because JC12's shape rule for `results[].value` was installed at the wire projection and not at the producer: `loop-state.json` still records an evidence artifact's free-text verdict word there, so a verbatim copy would have re-opened JC12 on this door through `value`.",
+          "wire": null,
+          "wire_absent": "Local row; no producer key."
+        }
+      },
+      "lane": "loop",
+      "naming": "\ud83d\udd34 THE KEYS BELOW ARE THE ROW'S OWN KEYS, snake_case, and NOT the camelCase the three delivered doors use. Those doors name a STORED field and carry a `wire` twin for the producer's spelling; this door has no store and no wire, so there is exactly one name and it is the one `content_capture` writes. Inventing a camelCase alias here would have created a second spelling for a field that has no second side -- and the plugin suite drives this door against a REAL captured row, so the aliases would simply have read as unclassified keys. Every `wire` below is null with a `wire_absent` reason, which is this schema's shape for a field the producer has no wire key for, and NOT `emitted: false`: that is for a wire slot that exists and nothing writes.",
+      "producer": "fairmind-coding scripts/content_capture.py capture",
+      "reclamation": "Per FIELD, in place, by `_insights_session.discard_content_classes`. An explicit `false` on a class removes exactly that class's keys from every row (the `classes` list below is what makes that computable without re-deriving anything), and a row left carrying no content at all is dropped. Revoking one letter must never destroy the other's bytes: that data is irreplaceable in the exact way this feature exists to point out.",
+      "schema": "fm-content/1",
+      "transport": null,
+      "transport_absent": "No door reads this file. Delivery is a separate change; until it exists the honest answer is that these bytes never leave the developer's machine."
+    },
+    "judgeStop": {
+      "collection": "(server-side)",
+      "collection_resolved_from": "a server-side setting.",
+      "fields": {
+        "changedFiles": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "note": "CLASS C, AND THE INTERESTING PART IS WHY NOT CLASS A. Class A is `merged_diffs`, and the loop door classes `stratification` as A precisely because its `diff_size` key is a projection of the MERGED diff -- so a file-and-line count looks at first like the same fact under another name. It is not. The Stop hook fires on the UNCOMMITTED WORKING TREE: this counts a CANDIDATE diff, one the judge may fail, the developer may discard and no branch may ever take. A class defined by merging cannot cover a measurement taken before any merge has happened, and it must not be made to depend on a later event either -- a row whose class is only decidable in hindsight is a row a revocation cannot act on when it arrives. What is left is what the field actually is: the size of what the agent produced in one generation, which is `sessionActivity.toolCounts` under another name, and classed the same. (Class B, `rejected_proposals`, fails for the same hindsight reason and would additionally have to reclassify the row after the verdict lands.)\nAbsent rather than zero when the working tree was never probed: four of the eight gate outcomes return before that happens, and a zero there would read as `clean_tree`, which is a different fact.",
+          "wire": "changedFiles"
+        },
+        "changedLines": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "note": "See `changedFiles` -- same measurement, same class, same argument against class A.",
+          "wire": "changedLines"
+        },
+        "contractVersion": {
+          "classes": [],
+          "note": "Producer-stamped on this lane, like the sessionEvents door and unlike sessionActivity. The schema defaults it, so a producer that omits it still lands -- and an UNKNOWN value is warned about and stored rather than refused, because a 422 here is a permanent dead-letter in the producer's outbox.",
+          "wire": "contractVersion"
+        },
+        "outcome": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "note": "CLASS C, and this is the assignment a reader is most likely to want to argue with, so the reasoning is here rather than left to be reconstructed. It is not an operational status: it is a per-firing verdict ABOUT A SPECIFIC CHANGE the agent made -- whether the tree it produced was worth judging, and if not, why. The nearest shipped analogues are `sessionEventRow.kind` and `.isError`, both C. The cost of the choice is stated plainly: revoking C removes the denominator this lane exists to provide, so the measurement stops for that tenant. That is the honest reading of the revocation, not a defect in it.",
+          "wire": "outcome"
+        },
+        "pluginVersion": {
+          "classes": [],
+          "wire": "pluginVersion"
+        },
+        "repoRef": {
+          "classes": [],
+          "wire": "repoRef"
+        },
+        "repoRefScheme": {
+          "classes": [],
+          "wire": "repoRefScheme"
+        },
+        "sessionId": {
+          "classes": [],
+          "wire": "sessionId"
+        },
+        "stopId": {
+          "classes": [],
+          "note": "The identity key AND the telemetry `recordId` component. Unclassified for the reason the map's `unclassified_meaning` gives: a consent class governs what may be sent, and a row that cannot be named cannot be deduplicated, redelivered or erased. Producer minted and opaque -- it names no person and no file.",
+          "wire": "stopId"
+        },
+        "stoppedAt": {
+          "classes": [],
+          "wire": "stoppedAt"
+        }
+      },
+      "lane": "judge",
+      "naming": "Wire and stored names are identical (camelCase throughout), like the three ambient doors. ONE TRAP WORTH NAMING, because the field list looks like it contradicts this: the record the service later FORWARDS to the downstream reporting pipeline spells four verdict keys in snake_case (`input_tokens`, `output_tokens`, `cache_read_tokens`, `model_id`) and renames `repoRef` to `repositoryId`. That is a DIFFERENT HOP -- brain to telemetry -- and this document describes the PRODUCER hop only, plugin to brain, whose keys are the field names because the door builds the schema straight off the body.",
+      "producer": "fairmind-plugins, the judge Stop hook -- NOT BUILT YET. R22 is the BRAIN's half of these lanes: the doors, the store and the classification exist before any producer does, which is deliberate (the same reason the `contentRow` door is in this map at all -- a class has to be decided before the data exists, or the revocation promise is unanswerable for it the day a producer appears). The `wire` names below are therefore the keys this door ACCEPTS -- the schema -- rather than keys read off a captured payload. They are NOT marked `emitted: false` one by one: that flag distinguishes a single dormant slot on a live door (`sessionEventRow.reward`), and stamping it on every field of a door with no producer at all would restate this sentence 31 times and say it worse.",
+      "row_class_note": "CLASS C ONLY, and only on the three fields that describe the work. This door is shaped like `sessionActivity` -- one top-level row per unit of work -- not like `sessionEventRow`, whose every field is C because the contract classes the whole `events` array wholesale. So the split follows `sessionActivity`: the envelope (`stopId`, `sessionId`, `repoRef`, `repoRefScheme`, `stoppedAt`, `contractVersion`, `pluginVersion`) is unclassified exactly as its counterparts are there, and what the agent DID is class C. No class A or B data reaches this lane at all -- no diff, no rejected proposal, no prose of any kind: every categorical is pattern-bounded to [a-z_]{1,64} and the rest are integers and opaque keys.",
+      "schema": "the door's server-side request schema",
+      "server_injected": [
+        "id",
+        "userId",
+        "company",
+        "projectId"
+      ],
+      "server_injected_why": "Same as the ambient doors: JWT identity wins over anything the body claims, and `id` is the store's own key. `projectId` is server-injected in the strongest sense -- the producer sends no project and must not, because its whole repository identity is a one-way hash; the server resolves it from the binding that hash names and falls back to the token's own claim (ONB-1), so no producer field corresponds to it.",
+      "transport": "REST POST /insights/v1/judge-stop"
+    },
+    "judgeVerdict": {
+      "collection": "(server-side)",
+      "collection_resolved_from": "a server-side setting.",
+      "fields": {
+        "abstentionCause": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "abstentionCause"
+        },
+        "applicableCriteria": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "applicableCriteria"
+        },
+        "cacheReadTokens": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "cacheReadTokens"
+        },
+        "contractVersion": {
+          "classes": [],
+          "wire": "contractVersion"
+        },
+        "decidedAt": {
+          "classes": [],
+          "wire": "decidedAt"
+        },
+        "excludedCriteria": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "note": "The headline the lane exists for: an applicable criterion the slice could not carry is a criterion nobody judged. Classed with the rest of the slice arithmetic it belongs to -- splitting it out would let a revocation leave a pass rate standing with no record of what it silently skipped.",
+          "wire": "excludedCriteria"
+        },
+        "inputTokens": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "note": "THE ANALOGY A REVIEWER SHOULD FEEL FREE TO OVERTURN, stated so it can be. The four token counters, `modelId` and `servingId` describe THE JUDGE'S OWN INFERENCE -- FairMind infrastructure spending FairMind's tokens -- not the customer's code generation, which is what class C names everywhere else in this document. They are classed C by analogy to `sessionEventRow`, where exactly these fields (`inputTokens`, `outputTokens`, `cacheReadTokens`, `modelId`) carry C, and because the safe direction of a doubtful call is the revocable one. If the analogy is rejected, these six move to `[]` together and nothing else in the map changes.",
+          "wire": "inputTokens"
+        },
+        "modelId": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "modelId"
+        },
+        "outcome": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "note": "Same reasoning as judge-stop's `outcome`.",
+          "wire": "outcome"
+        },
+        "outputTokens": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "outputTokens"
+        },
+        "pMax": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "pMax"
+        },
+        "reads": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "reads"
+        },
+        "repoRef": {
+          "classes": [],
+          "wire": "repoRef"
+        },
+        "repoRefScheme": {
+          "classes": [],
+          "wire": "repoRefScheme"
+        },
+        "rubricVersion": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "note": "Which compiled rubric judged the change -- the criteria in force at that moment, so it describes the judgement rather than the envelope. Classed by the same analogy as `modelId`.",
+          "wire": "rubricVersion"
+        },
+        "servingId": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "servingId"
+        },
+        "sliceAtCap": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "sliceAtCap"
+        },
+        "sliceSize": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "sliceSize"
+        },
+        "verdict": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "verdict"
+        },
+        "verdictForcedBy": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "verdictForcedBy"
+        },
+        "verdictId": {
+          "classes": [],
+          "note": "Same role and same reasoning as judge-stop's `stopId`.",
+          "wire": "verdictId"
+        }
+      },
+      "lane": "judge",
+      "naming": "Wire and stored names are identical (camelCase throughout), like the three ambient doors. ONE TRAP WORTH NAMING, because the field list looks like it contradicts this: the record the service later FORWARDS to the downstream reporting pipeline spells four verdict keys in snake_case (`input_tokens`, `output_tokens`, `cache_read_tokens`, `model_id`) and renames `repoRef` to `repositoryId`. That is a DIFFERENT HOP -- brain to telemetry -- and this document describes the PRODUCER hop only, plugin to brain, whose keys are the field names because the door builds the schema straight off the body.",
+      "producer": "fairmind-plugins, the judge Stop hook -- NOT BUILT YET. R22 is the BRAIN's half of these lanes: the doors, the store and the classification exist before any producer does, which is deliberate (the same reason the `contentRow` door is in this map at all -- a class has to be decided before the data exists, or the revocation promise is unanswerable for it the day a producer appears). The `wire` names below are therefore the keys this door ACCEPTS -- the schema -- rather than keys read off a captured payload. They are NOT marked `emitted: false` one by one: that flag distinguishes a single dormant slot on a live door (`sessionEventRow.reward`), and stamping it on every field of a door with no producer at all would restate this sentence 31 times and say it worse.",
+      "row_class_note": "CLASS C on everything the judge OBSERVED OR DECIDED; the envelope (`verdictId`, `repoRef`, `repoRefScheme`, `decidedAt`, `contractVersion`) unclassified, exactly as on the judge-stop door. DECIDED HERE RATHER THAN DEFERRED, and stated so the decision can be overturned cheaply: section 16 was left open by the design note, but a stored door has to appear in this map or it acquires \"no class\" by nobody looking at it -- which is the single failure this document exists to make impossible, and leaving the door out of the pin would have been that failure rather than a way of avoiding the choice. No class A or B data reaches this lane either: no criterion text, no rubric prose, no reason string, no file path -- `verdictForcedBy` carries one of eight snake_case categories and is pattern-bounded, which is what keeps it from becoming the channel a reason string would open.",
+      "schema": "the door's server-side request schema",
+      "server_injected": [
+        "id",
+        "userId",
+        "company"
+      ],
+      "server_injected_why": "Same as the judge-stop door minus `projectId`: section 16 carries no project, so the schema declares none and nothing resolves one. `userId` is worth a second sentence here, because the wire and the store disagree on purpose: the STORED row carries the server-stamped subject (without it the erasure filter cannot reach this collection and a per-subject erasure is silently partial), while the telemetry builder emits no person key at all onto the telemetry wire. The omission lives in the builder, never in the document.",
+      "transport": "REST POST /insights/v1/judge-verdict"
+    },
+    "loop": {
+      "collection": "(server-side)",
+      "collection_resolved_from": "a server-side setting; a deletion job resolves it from configuration.",
+      "fields": {
+        "agents": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "agents"
+        },
+        "artifactMutations": {
+          "classes": [
+            "A"
+          ],
+          "granularity": "field",
+          "wire": "artifact_mutations"
+        },
+        "artifacts": {
+          "classes": [
+            "A"
+          ],
+          "granularity": "field",
+          "wire": "artifacts"
+        },
+        "checks": {
+          "classes": [],
+          "wire": "checks"
+        },
+        "closedAt": {
+          "classes": [],
+          "wire": "closed_at"
+        },
+        "consent": {
+          "classes": [],
+          "note": "The stamp itself is never governed by the classes it declares -- withholding it would destroy the only record of what was withheld and why.",
+          "wire": "consent"
+        },
+        "contractVersion": {
+          "classes": [],
+          "wire": "contract_version"
+        },
+        "humanGate": {
+          "classes": [
+            "B"
+          ],
+          "granularity": "field",
+          "wire": "human_gate"
+        },
+        "iter": {
+          "classes": [],
+          "note": "Unclassified AND load-bearing for class B: `iter` counts evaluations unconditionally, so the COUNT of rejected work stays computable even when class B withholds what those iterations were. F.5 accepts this deliberately -- class B withholds content, not cardinality.",
+          "wire": "iter"
+        },
+        "iterationTimeline": {
+          "class_rows": {
+            "B": "The rows the predicate selects. Class B withholds what those iterations WERE -- check ids, verdicts, values, timestamps, commit shas -- never the fact that they existed: `iter` is unconditional and the surviving `n` sequence is monotone over results-bearing rows, so the cardinality of rejected work stays computable (F.5, accepted deliberately).",
+            "C": "The results-bearing rows the predicate does NOT select -- every verdict green. This is the surviving cadence, and it is generation context in the same sense `transitions` is.",
+            "predicate": "A row is a REJECTED PROPOSAL when its `results` is a non-empty list and not every entry's `verdict` is \"green\". That is the gate's own pass boundary read back off the record (run_gate_checks.py's `all_green`), so the wire's class boundary and the gate's cannot drift apart -- and because `results[].verdict` is itself on the wire, a reader can VERIFY that a payload omitting B carries no non-green row.",
+            "unclassified": "Structural audit rows -- no `results` key at all (arm, hold, release, scope_violation). They are not a proposal of any class and belong to NO class: they are kept whichever classes are withheld, on the wire and in the store alike. Dropping them would silently shorten the timeline and destroy the re-arm signal JC4 exists to capture. Written out because a row-granular deletion reading only the B and C definitions above would have no instruction covering them."
+          },
+          "classes": [
+            "B",
+            "C"
+          ],
+          "granularity": "row",
+          "note": "The one class-MIXED field in this map, and the field the two former documents disagreed about. B rows and C rows live in ONE list, so neither a field removal on the store side nor a whole-field emptying on the producer side is correct for either class alone: both need row surgery by the single predicate in `class_rows`. NOT reclassified to B-only -- relabelling the surviving cadence as B would be the same category error in the other direction.",
+          "wire": "iteration_timeline"
+        },
+        "loopId": {
+          "classes": [],
+          "wire": "loop_id"
+        },
+        "mutationDivergence": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "note": "Class C, NOT A. It was class A while it carried a path list; with the paths removed what remains is two one-way digests, a boolean and a cardinality -- no diff content, no file named -- and its subject is what the process did between the gate and the merge, which is exactly `transitions`' subject. A class inherited from a field's previous shape is a stale rule.",
+          "wire": "mutation_divergence"
+        },
+        "ownerSession": {
+          "classes": [],
+          "wire": "owner_session"
+        },
+        "projectId": {
+          "classes": [],
+          "note": "ONB-1 changed what fills it, not what it holds: the door now stamps the token's `projectId` claim when the token carries one, and the producer's own `project_id` otherwise. Both are internal project identifiers, so the class stays empty.",
+          "wire": "project_id"
+        },
+        "projectIdReported": {
+          "classes": [],
+          "note": "ONB-1. The producer's own project string, kept ONLY when it disagrees with the stamped `projectId` above -- it is how a key minted against the wrong project becomes visible. Same content as `projectId` and therefore the same (empty) class; it is a diagnosis field, never a key.",
+          "wire": null,
+          "wire_absent": "Derived at the door by comparing the wire's `project_id` with the resolved value; no producer key corresponds to it."
+        },
+        "rawPayload": {
+          "classes": [
+            "A",
+            "B",
+            "C"
+          ],
+          "granularity": "embedded",
+          "note": "REQUIRED on the schema, and it holds a second copy of every classed field above. Any deletion promise that unsets only the typed fields leaves the revoked class intact in here.",
+          "wire": null,
+          "wire_absent": "The door builds it: it is the caller's request captured verbatim before any coercion, so no producer key corresponds to it."
+        },
+        "startedAt": {
+          "classes": [],
+          "wire": "started_at"
+        },
+        "status": {
+          "classes": [],
+          "wire": "status"
+        },
+        "stratification": {
+          "classes": [
+            "A"
+          ],
+          "granularity": "field",
+          "note": "Both surviving keys describe the merged diff: `diff_size` counts it and `language` is an extension histogram over the same set. The `task_kind` axis was dropped from this change by owner decision, so no unclassified key rides inside this object.",
+          "wire": "stratification"
+        },
+        "targetRef": {
+          "classes": [],
+          "wire": "target_ref"
+        },
+        "taskRef": {
+          "classes": [],
+          "wire": "task_ref"
+        },
+        "tier": {
+          "classes": [],
+          "wire": "tier"
+        },
+        "transitions": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "transitions"
+        }
+      },
+      "lane": "loop",
+      "naming": "Stored names are camelCase, the loop wire is snake_case, and the transform is 1:1 in both directions (mutation_divergence <-> mutationDivergence). `rawPayload` is the one stored key with no wire twin -- the door builds it.",
+      "producer": "fairmind-coding scripts/insights_flush_payload.py build_loop_payload",
+      "schema": "the door's server-side request schema",
+      "server_injected": [
+        "id",
+        "userId",
+        "company"
+      ],
+      "server_injected_why": "`userId`/`company` come from the JWT and never from the body; `id` is assigned by the store. None is customer data a consent class could govern.",
+      "transport": "MCP tool Insights_record_loop_stats"
+    },
+    "sessionActivity": {
+      "collection": "(server-side)",
+      "collection_resolved_from": "a server-side setting.",
+      "fields": {
+        "agents": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "agents"
+        },
+        "artifacts": {
+          "classes": [],
+          "note": "UNCLASSIFIED, and the asymmetry is recorded rather than smoothed over: the same NAME is class A on the loop door because it projects the merged diff, while F.1's ambient column classes only `agents`, `toolCounts`, `skills` and `events`. Not reclassified here -- inventing a class the contract did not assign would be the same defect as declaring one retroactively. If it ever starts being sent, this entry is where the decision has to be made.",
+          "wire": null,
+          "wire_absent": "The ambient producer does not send this key at all (measured 2026-08-14: absent from the sha-pinned conformance fixture), and the service privacy-filters it before persistence."
+        },
+        "consent": {
+          "classes": [],
+          "note": "See the loop door's `consent`.",
+          "wire": "consent"
+        },
+        "contractVersion": {
+          "classes": [],
+          "wire": null,
+          "wire_absent": "Stamped server-side on THIS lane -- the producer sends no contract version on the session-activity payload (measured 2026-08-14: absent from the 17-key payload in the sha-pinned `fixtures/wire/session_activity_conformance.json`). Note the asymmetry with the sessionEvents door, where the producer does send it."
+        },
+        "decisionsCount": {
+          "classes": [],
+          "wire": "decisionsCount"
+        },
+        "endedAt": {
+          "classes": [],
+          "wire": "endedAt"
+        },
+        "entrySource": {
+          "classes": [],
+          "wire": "entrySource"
+        },
+        "evictedCount": {
+          "classes": [],
+          "wire": "evictedCount"
+        },
+        "flushLagS": {
+          "classes": [],
+          "wire": "flushLagS"
+        },
+        "outcome": {
+          "classes": [],
+          "wire": null,
+          "wire_absent": "The schema declares and defaults it; the ambient producer never sets it, because an ambient session ENDED -- it did not succeed or abort -- so any outcome would be invented (measured 2026-08-14: absent from the same sha-pinned fixture)."
+        },
+        "parserDegraded": {
+          "classes": [],
+          "wire": "parserDegraded"
+        },
+        "pendingBacklogCount": {
+          "classes": [],
+          "wire": "pendingBacklogCount"
+        },
+        "pluginVersion": {
+          "classes": [],
+          "wire": "pluginVersion"
+        },
+        "rawDigest": {
+          "classes": [],
+          "note": "A one-way digest OVER the row, including its consent stamp. It certifies the row rather than describing the work, so no class governs it -- but note it changes when the stamp changes, which is deliberate: a row collected under different consent is a different row.",
+          "wire": "rawDigest"
+        },
+        "repoRef": {
+          "classes": [],
+          "wire": "repoRef"
+        },
+        "repoRefScheme": {
+          "classes": [],
+          "wire": "repoRefScheme"
+        },
+        "sessionId": {
+          "classes": [],
+          "wire": "sessionId"
+        },
+        "skills": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "skills"
+        },
+        "startedAt": {
+          "classes": [],
+          "wire": "startedAt"
+        },
+        "toolCounts": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "toolCounts"
+        }
+      },
+      "lane": "ambient",
+      "naming": "Wire and stored names are identical: this lane is camelCase throughout, on the wire and in the store.",
+      "producer": "fairmind-coding scripts/ambient_outbox.py build_wire_payload",
+      "schema": "the door's server-side request schema",
+      "server_injected": [
+        "id",
+        "userId",
+        "company",
+        "projectId"
+      ],
+      "server_injected_why": "Same as the loop door: JWT identity wins over anything the body claims, and `id` is the store's. `projectId` joined them in ONB-1 and is server-injected in the strongest sense -- the ambient lane carries no project and must not: its whole repository identity is a one-way hash, and putting a project name on the wire would undo that. The server resolves it from the binding that hash names, falling back to the token's own claim, so no producer field corresponds to it.",
+      "transport": "REST POST /insights/v1/session-activity (and its MCP twin)"
+    },
+    "sessionEventRow": {
+      "collection": "(server-side)",
+      "collection_resolved_from": "a server-side setting.",
+      "fields": {
+        "actor": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "actor"
+        },
+        "cacheCreationTokens": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "cacheCreationTokens"
+        },
+        "cacheReadTokens": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "cacheReadTokens"
+        },
+        "inputTokens": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "inputTokens"
+        },
+        "isError": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "isError"
+        },
+        "isSidechain": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "isSidechain"
+        },
+        "kind": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "kind"
+        },
+        "lane": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "lane"
+        },
+        "modelId": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "modelId"
+        },
+        "outputTokens": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "outputTokens"
+        },
+        "parentUuid": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "parentUuid"
+        },
+        "reward": {
+          "classes": [
+            "C"
+          ],
+          "emitted": false,
+          "granularity": "field",
+          "note": "RESERVED and unpopulated (F.6): the wire slot and the stored field both exist, nothing writes either today. Classified NOW rather than when it is first written, because a field that acquires data before it acquires a class is a field whose stored history cannot be revoked. `emitted: false` is what makes the day a producer starts writing it turn a test red instead of passing quietly.",
+          "wire": "reward"
+        },
+        "seq": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "seq"
+        },
+        "toolName": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "toolName"
+        },
+        "toolUseId": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "toolUseId"
+        },
+        "ts": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "note": "Present on agent-authored rows ONLY -- a human-authored row has no `ts` key to populate, and the schema refuses one loudly. That is decision D2, not a consent class, and the two must not be conflated: D2 governs whether a clock exists at all, the class governs whether what exists may be sent.",
+          "wire": "ts"
+        },
+        "uuid": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "wire": "uuid"
+        }
+      },
+      "lane": "ambient",
+      "naming": "Wire and stored names are identical (camelCase throughout).",
+      "producer": "fairmind-coding scripts/ambient_digest.py build_event_skeleton, carried by build_events_payload",
+      "row_class_note": "F.1 classes `events` wholesale as C, so every field of a row carries class C. Enumerated field by field anyway, because that is what makes an eighteenth row field fail the pin instead of inheriting a class by proximity -- which is precisely how `reward` came to be classified rather than assumed.",
+      "schema": "the door's server-side request schema",
+      "server_injected": [],
+      "server_injected_why": "Every field here is producer-supplied; the envelope's identity fields are added by the persisted `record type`, not by this wire row.",
+      "transport": "REST POST /insights/v1/session-events -- ONE row inside the envelope's `events` array",
+      "wire_container": "the `events` array of the sessionEvents door's envelope; a producer-side check reads the UNION of keys over the rows, since a row carries only the keys its own kind has (D2: a human-originated row has no `ts` key at all)."
+    },
+    "sessionEvents": {
+      "collection": null,
+      "collection_resolved_from": "The batch is an ENVELOPE, never a document: the store keeps one document per ROW, in the collection named on the sessionEventRow door, with the envelope's identity fields copied onto each. A class deletion on this door is therefore a delete over that collection keyed by session, not an edit of one document.",
+      "derived_stored_fields": {
+        "agentRole": {
+          "classes": [
+            "C"
+          ],
+          "from": "lanes",
+          "granularity": "field",
+          "note": "Exactly the kind of field a map built from the wire alone would miss -- which is why the entry keys of this document are the STORED names.",
+          "wire": null,
+          "wire_absent": "Derived in the store from the envelope's `lanes` table and denormalized onto every stored row; it exists under no wire field of its own."
+        }
+      },
+      "fields": {
+        "consent": {
+          "classes": [],
+          "note": "See the loop door's `consent`.",
+          "wire": "consent"
+        },
+        "contractVersion": {
+          "classes": [],
+          "wire": "contractVersion"
+        },
+        "events": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "note": "The row array. Each row's OWN fields are classified on the sessionEventRow door, which exists because the store explodes this array into one document per row -- `lanes` and the activity door's `agents` stay classified wholesale precisely because they do not.",
+          "wire": "events"
+        },
+        "lanes": {
+          "classes": [
+            "C"
+          ],
+          "granularity": "field",
+          "note": "The hoisted lane -> agentRole table. Generation context, same class as the rows it attributes; its own inner keys are covered wholesale by this entry, since a deletion reaches them through this field. It is also denormalized onto every stored row as `agentRole` -- see `derived_stored_fields`.",
+          "wire": "lanes"
+        },
+        "pluginVersion": {
+          "classes": [],
+          "wire": "pluginVersion"
+        },
+        "projectorVersion": {
+          "classes": [],
+          "wire": "projectorVersion"
+        },
+        "repoRef": {
+          "classes": [],
+          "wire": "repoRef"
+        },
+        "repoRefScheme": {
+          "classes": [],
+          "wire": "repoRefScheme"
+        },
+        "sessionId": {
+          "classes": [],
+          "wire": "sessionId"
+        }
+      },
+      "lane": "ambient",
+      "naming": "Wire and stored names are identical (camelCase throughout).",
+      "producer": "fairmind-coding scripts/ambient_outbox.py build_events_payload",
+      "schema": "the door's server-side request schema",
+      "server_injected": [
+        "userId",
+        "company"
+      ],
+      "server_injected_why": "No `id`: the batch is an envelope, never a document -- the store keeps one document per row.",
+      "transport": "REST POST /insights/v1/session-events -- the batch ENVELOPE"
+    }
+  },
+  "entry_schema": {
+    "class_rows": "Only on a `row`-granular field: which rows belong to which class, and the predicate that decides. It is the ONE place the producer's withholding boundary and the store's deletion boundary are written, which is the whole reason this document is single.",
+    "classes": "The consent classes this field carries. `[]` is a DECISION, never an absence -- see `unclassified_meaning`.",
+    "emitted": "Present, and false, ONLY for a field that has a wire name nothing writes yet. Absent means it is emitted today. The distinction is load-bearing and must not be collapsed into `wire_absent`: `reward` is a reserved wire slot (F.6) while `rawPayload` has no wire key at all, and treating them alike would let the day something starts writing `reward` pass silently. The producer's own test asserts this set BY NAME.",
+    "granularity": "How a deletion reaches the field. Required on a classed field, forbidden on an unclassified one. See `granularity_values`.",
+    "note": "Why this assignment, where a reader would otherwise get it wrong from memory.",
+    "reclaimed_with": "Only on a field whose own `classes` is empty and that is nonetheless deleted when a class is revoked: the per-field STAMP naming that class. A stamp is never governed by the class it declares (same rule as `consent`), but a stamp whose content has just been removed describes nothing, so it goes with it. The producer's reclaimer and this key are asserted to name the same set.",
+    "wire": "The producer's key for this field on this door's lane, or null when the producer has no key for it -- `wire_absent` then says why.",
+    "wire_absent": "Why there is no producer key. Present exactly when `wire` is null."
+  },
+  "granularity_values": {
+    "embedded": "The field is a verbatim copy of the whole request and therefore CONTAINS every classed field again. A class deletion must rewrite this blob as well as the typed field, or the revoked data survives inside it. This is the finding a prose table could not have surfaced.",
+    "field": "The whole stored field belongs to the listed class. A class deletion is a plain removal of this field.",
+    "row": "The field is a LIST whose rows split across classes, so a class deletion needs per-row surgery, not a whole-field removal. A deletion job that unsets it removes more than the revoked class -- and a producer that empties it withholds more than the revoked class. `class_rows` carries the row boundary."
+  },
+  "key_naming": "The ENTRY KEY is the STORED field name -- the field name in the server's own schema -- because the question this map answers, which stored field a revocation has to reach, is asked of the store. The PRODUCER key is `wire` on the same entry, so both names live in one place and neither repo translates. On the loop door the two differ by case convention only (snake_case on the wire, camelCase in the store, 1:1 in both directions); on the three ambient doors they are identical.",
+  "not_a_stored_field": "`human_accepted` is a loop-door MCP tool PARAMETER with no stored field of its own -- it coerces `status` and is preserved inside `rawPayload` -- and this plugin's producer never sends it either (measured 2026-08-14: no occurrence in fairmind-coding `scripts/` or `commands/`, and absent from the 21-key loop payload in the sha-pinned `fixtures/wire/loop_execution_conformance.json`). It is therefore absent from this map by construction, not by omission.",
+  "purpose": "The ONE canonical record of which field belongs to which consent class -- for the producer that SENDS it and the store that HOLDS it alike. JC5's promise is 'revoking B a year later removes exactly B', and that is unexecutable while no versioned artifact says which field carries class-B data: a table inside a design document cannot be read by a deletion job, cannot be versioned against the data it describes, and cannot turn red when a field is added without a class. Both repos hold this file byte-for-byte and each pins its sha; `serialization` says how the bytes are produced.",
+  "serialization": "json.dumps(doc, indent=2, sort_keys=True) + '\\n', UTF-8, ensure_ascii=True (both suites assert the bytes are ASCII and newline-terminated). Sorted keys cost the narrative order and buy a diff that can only move when the content moves. TO CHANGE IT: edit ONE copy, `cp` those bytes over the other -- never re-type the second, two hand-edited files differ by a comma eventually and the sha pin would then be a tripwire on the copying rather than on the classification -- then re-pin CONSENT_CLASS_MAP_SHA256 in BOTH suites. `cmp -s` over the two paths is the check; the two pinned shas are what keep it checked after you have gone.",
+  "unclassified_meaning": "An empty `classes` list means the field belongs to no consent class and is always sent, exactly as it is sent today. F.1 states this remainder explicitly and warns that it still names the customer's ticket identifiers and the kind of work -- a consent class must never be read as covering them. It is written out rather than inferred because the alternative is a field acquiring 'no class' by nobody looking at it: both repos' pins require every field to appear here, so an entry cannot be defaulted into existence.",
+  "version": "fm-consent-map/3",
+  "vocabulary_version": "fm-consent/1",
+  "why_one_document": "It was TWO documents until 2026-08-14 -- one in fairmind-plugins describing what is SENT, one in the server's repository describing what is STORED -- and each claimed in its own prose that the other was byte-identical to it while they were different documents entirely. They had already drifted in the same place: both classified `iterationTimeline` / `iteration_timeline` as B+C while the producer withheld only B, so a deletion job reading the store's copy would have removed rows the producer never stopped sending, and neither copy could see the other's half. That disagreement is only POSSIBLE with two documents. With one, the sent<->stored correspondence is a property of the artifact instead of a coincidence: every entry carries the stored name, the producer's wire name, the lane that sends it and the door/collection that stores it, so each repo can assert ITS OWN HALF against the same bytes -- the producer that every wire key it emits is classified, the store that every stored field is, and a deletion job that 'which stored fields are class B' has an answer."
+}
