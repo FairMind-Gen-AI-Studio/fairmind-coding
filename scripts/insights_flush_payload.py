@@ -189,7 +189,7 @@ def _read_json(path, default=None):
 
 def _read_jsonl(path):
     """Every parseable row of a JSONL ledger. An absent or unreadable ledger
-    degrades to empty and corrupt bytes mid-file to the rows before them
+    degrades to empty; an undecodable byte costs only its own line
     (`loop_open.ledger_lines`), like the sibling readers."""
     return _parse_jsonl_lines(loop_open.ledger_lines(path))
 
@@ -3501,11 +3501,12 @@ def pending_decisions(cwd, base=None):
                             read_cursor(cwd).get("decisions") or {})
 
 
-#: The one `kind` from the PL-3 decision-capture vocabulary that belongs in the
-#: company brain. The agents write five (`architecture`, `implementation`,
-#: `dependency`, `testing`, `process`) and accept a sixth rather than reject it,
-#: so this is a MEMBERSHIP test against one name, never an exclusion list of the
-#: other four — a `kind` nobody anticipated must not fall through into the brain
+#: The one `kind` from the decision-capture categories that belongs in the
+#: company brain. The agents write one of six (`recurring-fix`, `business-rule`,
+#: `architecture`, `standard-deviation`, `dependency`, `other`), and rows logged
+#: earlier carry older words (`implementation`, `testing`, `process`), so this
+#: is a MEMBERSHIP test against one name, never an exclusion list of the
+#: others — a `kind` nobody anticipated must not fall through into the brain
 #: by default.
 BRAIN_DECISION_KIND = "architecture"
 

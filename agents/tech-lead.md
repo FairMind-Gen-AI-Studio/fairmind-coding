@@ -661,13 +661,21 @@ When you make a **direction-changing decision** during a task — choosing one a
   ```bash
   mkdir -p .fairmind/insights
   jq -cn --arg agent "<your-role>" --arg decision "<what you decided>" \
-     --arg rationale "<why>" --arg at "<iso-8601-utc>" --arg kind "implementation" \
+     --arg rationale "<why>" --arg at "<iso-8601-utc>" --arg kind "<category>" \
      --argjson files '["app/services/needService.py"]' \
      --argjson functions '[{"file_path": "app/services/needService.py", "name": "create_need"}]' \
      '{agent:$agent, decision:$decision, rationale:$rationale, at:$at, kind:$kind, files:$files, functions:$functions}' \
      >> .fairmind/insights/decisions.jsonl
   ```
-- **`kind`** — what *sort* of decision it was: `architecture`, `implementation`, `dependency`, `testing`, or `process`. A word outside that list is accepted rather than rejected, so reach for a new one instead of forcing a wrong fit.
+- **`kind`** — the category of the decision, one of these six:
+  - `recurring-fix` — a fix for an error already seen before
+  - `business-rule` — a rule of the business domain encoded in code
+  - `architecture` — a structural or technology choice
+  - `standard-deviation` — a deliberate exception to an internal standard
+  - `dependency` — choosing, pinning or replacing a library or service
+  - `other` — none of the above
+
+  Use `other` when none fits. Rows already logged with an older word stay valid and are sent as written.
 - **`files` and `functions` are what connect the decision to the code it is about.** `files` lists the paths it concerns, repo-relative with no leading slash (`app/services/needService.py`, not `/path/to/repo/app/...`). `functions` names the specific symbols, one `{"file_path": "...", "name": "..."}` object each — spelled exactly like that, same path form. Add `"start_line"` when you have actually read the line: it is the tie-breaker when one file holds several functions of that name, and a ref that stays ambiguous is dropped rather than guessed at — but a *wrong* line matches nothing at all, so leave it out unless you know it. `functions` is the field that links your decision to the function itself in Fairmind's graph; `files` records the paths but links nothing. **Most engineering decisions are about code — fill both in whenever yours is**, or the decision arrives as an opinion with no subject.
 - **Omit what you did not observe; never guess it.** Drop the whole `--arg`/`--argjson` and its key from the object rather than sending a placeholder. An omitted field reads as *not recorded*; an invented one is indistinguishable from something you actually saw, and quietly poisons every count built on it. A genuinely procedural decision touching no code carries `kind` alone, and that is a complete row.
 - **One JSON row per decision** — a single self-contained object per direction-changing decision, not a running log of every step.

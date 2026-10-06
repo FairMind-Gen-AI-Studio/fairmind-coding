@@ -788,6 +788,19 @@ def report_bind_failure(exc, report):
     elif exc.status == 403 and not exc.detail.startswith(("Access denied", "Insufficient permissions. Required:")):
         report.trap("the configured endpoint returned an unrecognized 403. Verify the MCP "
                     "endpoint and authentication; this response does not establish a role refusal.")
+    elif exc.status == 403 and "bound to another project" in exc.detail:
+        # Refused because the checkout is bound under a DIFFERENT project; the role
+        # that matters is on that project, not the one being bound.
+        report.trap(
+            "this checkout is already bound to another project, and moving it needs the "
+            "EDITOR role on that other project — ask an admin of that other project, "
+            "not of the one you are binding to.")
+    elif exc.status == 403 and "already bound elsewhere" in exc.detail:
+        # The server will not move this binding at all, so no role changes the outcome.
+        report.trap(
+            "this checkout is already bound elsewhere and this bind cannot move it. "
+            "There is nothing to change on your side today: no role you hold or request "
+            "on the project you are binding to will lift it.")
     elif exc.status == 403:
         report.trap(
             f"you may not bind within that project ({exc.detail}). Binding changes what "
@@ -994,10 +1007,31 @@ def _report_reconciled(reconciled, report):
         report.info("Two limits, stated rather than implied: rows recorded from a checkout "
                     "with no origin remote cannot be reached, and re-keying does not draw "
                     "the graph edges those older decisions never got.")
-    else:
-        report.info("nothing recorded before this connect needed re-keying")
     graph = reconciled.get("graph")
-    if graph not in (None, "merged", "skipped"):
+    held_back = reconciled.get("heldBack")
+    held_back = held_back if isinstance(held_back, dict) else {}
+    held = held_back.get("auditRuns")
+    counted = isinstance(held, int) and not isinstance(held, bool) and held >= 0
+    held = held if counted else 0
+    capped = bool(held_back.get("capped"))
+    if not (audits or decisions) and not (graph == "shared" or held):
+        report.info("nothing recorded before this connect needed re-keying")
+    # `held` is keyed on its own, not on `graph == "shared"`: across several
+    # spellings the server reports the FIRST status that is not 'merged', so a
+    # shared spelling's count can arrive under 'unverified'.
+    if held:
+        count = f"at least {held}" if capped else str(held)
+        report.warn(
+            f"{count} audit run(s) stay on the old address until the operator backfill; "
+            "this repository address is shared with another project (or with rows that "
+            "name no project), so only this project's own rows were re-keyed")
+    elif graph == "shared" and counted:
+        report.warn("this repository address is shared with another project, so only this "
+                    "project's own rows were re-keyed; none of its audit runs were held back")
+    elif graph == "shared":
+        report.warn("this repository address is shared with another project, so audit "
+                    "runs recorded on it are held back until the operator backfill")
+    if graph not in (None, "merged", "skipped", "shared"):
         report.warn(f"the graph anchor reported '{graph}'")
 
 

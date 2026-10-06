@@ -189,13 +189,14 @@ def ledger_lines(path):
     """The lines of a JSONL ledger, in the ONE unit `DECISIONS_START_KEY` counts
     and the flush partitions on: text-mode lines, blank and unparseable ones
     included; none when the file is absent or unreadable. An undecodable byte
-    ends the readable part, and since the decoder works in chunks the lines
-    just before it can be lost with it. Counting parsed rows instead would let
-    one blank line move the boundary."""
+    is replaced (U+FFFD) and costs only the line it sits in: a strict decoder
+    raises per read-ahead chunk, which would drop the readable lines before
+    the bad byte as well and leave the mark past the readable end. Counting
+    parsed rows instead would let one blank line move the boundary."""
     if not os.path.isfile(path):
         return
     try:
-        with open(path, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 yield line
     except (OSError, UnicodeError):
@@ -221,6 +222,29 @@ def _atomic_write_json(path, data):
         except OSError:
             pass
         raise
+
+
+def _warn_unsent_rows(cwd, old_ref):
+    """Say on stderr how many decisions of the run being left are still unsent.
+
+    Moving the mark files every row before it under no attribution, and both
+    decision doors keep the first attribution a decisionId arrives with, so
+    rows a skipped terminal flush (Fairmind MCP not connected, "a mode, not an
+    error") left pending are unattributed for good once the next run opens.
+    Advisory only: it never blocks or changes the repoint, and any failure
+    reading, counting or printing the pending set is swallowed."""
+    if old_ref is None:
+        return
+    try:
+        import insights_flush_payload
+        batches = insights_flush_payload.pending_decisions(cwd) or []
+        count = sum(len(b["decisions"]) for b in batches if b.get("task_ref"))
+        if count:
+            print(f"loop_open.py --repoint: {count} decision(s) of {old_ref} were never "
+                  f"sent and will travel unattributed; run /fairmind-sync-insights "
+                  f"before opening another run to keep their refs", file=sys.stderr)
+    except Exception:
+        return
 
 
 def repoint(cwd, task_ref, base_path=None, mode="loop"):
@@ -282,6 +306,7 @@ def repoint(cwd, task_ref, base_path=None, mode="loop"):
         }
         old_ref = None
     if old_ref != task_ref:
+        _warn_unsent_rows(cwd, old_ref)
         ctx[DECISIONS_START_KEY] = sum(
             1 for _ in ledger_lines(os.path.join(cwd, DECISIONS_LEDGER_REL)))
     ctx["task_ref"] = task_ref

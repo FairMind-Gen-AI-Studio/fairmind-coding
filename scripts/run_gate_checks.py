@@ -2191,7 +2191,18 @@ def run_gate(state, cwd, dry_run=False):
             return {"decision": DECISION_ITERATE, "feedback": reason_line + "\n" + feedback,
                     "results": results}
 
-        state["confirmations"] = state.get("confirmations", 0) + 1
+        # K confirms that the SAME tree is stably green. When both signatures
+        # are known (neither degraded) and differ, the previous green judged a
+        # different tree, so this green is the first for THIS one: restart at 1.
+        # A degraded or unknown signature on either side is fail-safe: no reset,
+        # the pre-existing increment stands.
+        tree_changed = (
+            prev_iter is not None
+            and sig_degraded is None
+            and prev_signature_known
+            and current_signature != prev_iter.get("mutation_signature")
+        )
+        state["confirmations"] = 1 if tree_changed else state.get("confirmations", 0) + 1
         if state["confirmations"] >= k:
             completeness_blocker = _completeness_blocker(state, current_signature)
             if completeness_blocker:
@@ -3253,7 +3264,7 @@ def _completeness_blocker(state, current_signature):
     rows = [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
     latest = rows[-1] if rows else None
     cmd = ("python3 <plugin>/scripts/run_gate_checks.py --record-completeness "
-           "--verdict complete|gaps --by <role> --attestation <path> [--summary <text>]")
+           "complete|gaps --by <role> --attestation <path> [--summary <text>]")
 
     if latest is None:
         return ("⏸ GATE GREEN — COMPLETENESS REVIEW REQUIRED. Every check passes and the "

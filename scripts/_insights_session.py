@@ -1039,7 +1039,9 @@ def _sidecar_role(sidecar_path):
 
 def _discover_sidecars(transcript_dir, session_id):
     """Subagent sidecars for `session_id` as `(path, agent_role)` PAIRS: every
-    `<transcript_dir>/<session_id>/subagents/agent-*.jsonl`, sorted by path for
+    `<transcript_dir>/<session_id>/subagents/agent-*.jsonl` AND every
+    `<transcript_dir>/<session_id>/subagents/workflows/<run>/agent-*.jsonl`
+    (agents a Workflow launched, with their `.meta.json` beside them), sorted by path for
     deterministic aggregation order, each paired with the role `_sidecar_role`
     reads from its sibling `agent-*.meta.json`.
 
@@ -1053,8 +1055,10 @@ def _discover_sidecars(transcript_dir, session_id):
     list via `glob.glob`, never raises. The return shape is consumed by
     `ambient_digest.digest_transcript_file(..., sidecars=)`, which also accepts
     a bare path string per entry for a sidecar whose role is unknown."""
-    pattern = os.path.join(transcript_dir, session_id, "subagents", "agent-*.jsonl")
-    return [(path, _sidecar_role(path)) for path in sorted(glob.glob(pattern))]
+    base = os.path.join(transcript_dir, session_id, "subagents")
+    paths = set(glob.glob(os.path.join(base, "agent-*.jsonl")))
+    paths.update(glob.glob(os.path.join(base, "workflows", "*", "agent-*.jsonl")))
+    return [(path, _sidecar_role(path)) for path in sorted(paths)]
 
 
 # OPEN-1 F3 — the two causes of a rollup that is NOT a measurement. Both take the

@@ -193,12 +193,28 @@ has filed, offer `brain-add-document` first and reference the document once it i
 | `decisionId` | **`decision:<project_id>:<slug of the title>`** — the slug lowercase, non-alphanumerics to `-`, under 80 characters |
 | `ts` | now, ISO-8601 UTC |
 | `agent` | `brain-record-decision` |
-| `kind` | `architecture`, `implementation`, `dependency`, `testing` or `process` — or a truer word when none fits |
+| `kind` | the category, one of the six below |
 | `title` / `rationale` | what was decided, and why — in the person's terms, not a paraphrase that softens it |
 | `options` | `[{"title": ..., "rejected_because": ...}]` — the alternatives considered |
 | `consequences` | what follows from it, including what it costs |
 | `files` / `functions` | repo-relative paths, and `{"file_path", "name"}` per symbol — only what the decision is actually about |
 | `requirement_refs` / `document_refs` | node ids from Step 2, when there are any |
+
+**The category** is the decision's `kind`, one of:
+
+- `recurring-fix` — a fix for an error already seen before
+- `business-rule` — a rule of the business domain encoded in code
+- `architecture` — a structural or technology choice
+- `standard-deviation` — a deliberate exception to an internal standard
+- `dependency` — choosing, pinning or replacing a library or service
+- `other` — none of the above
+
+Use `other` when none fits. Check the destination tool's input schema first: read the
+description of the parameter that carries the row — `decisions` for
+`mcp__Fairmind__Brain_record_decision`, `new_decision` for
+`mcp__Fairmind__Brain_supersede_decision` — and send `kind` only when that description names
+`kind` as a row field. Otherwise leave `kind` out of the row. A server that does not take it
+is never sent it.
 
 **The slug is taken from the exact title you send.** When it would run past 80 characters,
 shorten the title itself, not the slug: a recorded title that does not slugify to its own id
@@ -237,7 +253,8 @@ replacement drafted as a full decision row.
 
 Show, per record, in a few lines: its **kind**, the **title**, the **rationale** or body, its
 **anchors** — files and functions — and the **target**: the repository and project it is
-recorded against. For a supersession, also which decision it replaces and the reason — and
+recorded against. For a decision, also its **category**, or "category not sent — the tool does
+not take it". For a supersession, also which decision it replaces and the reason — and
 say that the replaced decision **stops being current the moment the call lands**, while its
 replacement waits for a person as a proposal: that half does not wait for anybody. For an
 update of an issue already recorded, show the whole record that will replace the stored one,

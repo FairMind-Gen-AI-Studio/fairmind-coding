@@ -1,7 +1,7 @@
 {
   "name": "fairmind-coding",
   "description": "Coding workflow plugin: 6 role-based agents (Technical Lead, Software Engineer, Code Reviewer, QA Engineer, Debugging Specialist, Security Engineer), a skill library (the Fairmind context and TDD workflow, plan-to-code review, the gate layer, ticket compilation, an advisory decisions review, two brain skills that recover or draft requirements from what a project already holds, one that files a document the brain can cite, one that records a decision, an issue or the replacement of a decision when a person asks, one that reads a project's brief at the start of a session or writes it as a proposal, one that traces what a change touches, and one that turns a filed blueprint into proposed architecture components), hooks (workspace, ambient insight-capture, and command-opening banners; hooks.json is the roster), and 19 commands (a front-desk menu, loop, develop, gate authoring, harness audit, project connect, insights sync, policy config, fix and PR helpers). Adds a loop mode: a machine-checkable stop condition with an executed gate, RED-first maker-not-checker authoring, admission, and a final human gate. Runs standalone on any repo (zero-config); Fairmind, Playwright and MongoDB MCP are optional and only enable connected mode.",
-  "version": "0.2.111",
+  "version": "0.2.113",
   "author": {
     "name": "Fairmind"
   },
