@@ -2,25 +2,63 @@
 """Collect a repository's pull requests for the brain import.
 
 Reads a pull request and its review conversations through the person's own
-`gh` credential, using read-only GraphQL queries, and writes the arguments of
-the `Brain_import_pull_request` calls that bring it into the company brain.
-Nothing is posted to GitHub and nothing is sent to the platform from here.
+`gh` credential, using read-only GraphQL queries, and writes what the brain's
+reference card for it is built from. Nothing is posted to GitHub and nothing
+is sent to the platform from here.
 
     pr_collect.py list    [--repo OWNER/NAME] [--states MERGED,CLOSED]
                           [--since YYYY-MM-DD | --days N] [--limit N]
                           [--out FILE]
-    pr_collect.py collect [--repo OWNER/NAME] --out-dir DIR [--max-chars N]
+    pr_collect.py collect [--repo OWNER/NAME] --out-dir DIR
+                          [--agent-account LOGIN ...]
                           (--number N [--allow-open]
                            | --since YYYY-MM-DD | --days N)
                           [--max-seconds N] [--resume]
+    pr_collect.py redact  --read FILE --erased LOGIN [--erased LOGIN ...]
     pr_collect.py remote
+    pr_collect.py busiest --out-dir DIR [--number N ...] [--root DIR]
 
 `remote` prints `{"repository", "git_remote"}`: the origin remote as the
 import door may receive it, with any `user:token@` in front of the host
-removed. `list` prints a JSON array, newest first. `collect` writes one file per call
-under `DIR/<number>/part-<k>.json` (the `part-<k>.json` files already in that
-directory are removed first, so a stale part can never be sent; nothing else in it is touched) and prints a JSON report. Without `--repo` the
+removed. `list` prints a JSON array, newest first. Without `--repo` the
 repository is read from the `origin` remote, which must be on github.com.
+
+Cards. `collect` writes two files per pull request under `DIR/<number>/`:
+
+* `card.json`, the SKELETON of the reference card: every mechanical field of
+  the pull request (ids, state, author, dates, branches, head and merge
+  commits, changed paths, participants, the source's version and visibility)
+  and none of its text. `reference_card.py stage` joins it with the agent's
+  summary and rationale points; the agent never re-types a field. The pull
+  request's description and comments are never in it.
+* `read.md`, what the agent reads to write its summary: the description, the
+  conversation and the review threads, in order. It stays on this machine and
+  is never sent.
+
+Erased people. The brain's check answer may name `erased_participants`:
+logins an administrator has erased. `redact` rewrites a `read.md` in place
+without what those people wrote (their comments, and the description when one
+of them opened the pull request), before the agent reads it, so a new summary
+cannot put their words back. Other people's quotations of them are not found.
+
+Files from an earlier shape (`part-<k>.json`) in that directory are removed. A
+staged `write.json` is left alone: it belongs to the version it was staged for.
+
+The version. `source_version` is the fingerprint `source_version.py`
+describes: the title, the description, GitHub's own state word and the human
+comments (issue comments, submitted review bodies and every review-thread
+comment of a person, not a bot, not one of the `--agent-account` logins).
+Whitespace, a bot's remarks and the order the API returned them in never change
+it. A review thread's comments are read to the end, a hundred at a time.
+
+Participants. The pull request's author and everyone who commented or
+submitted a review, bots included, once each in login order, so that erasing a
+person by login still reaches the card. A deleted account (`ghost`) is not a
+participant. More than 100 is refused, never cut.
+
+Visibility. `source_visibility` is the repository's own word: `public`,
+`private`, or `restricted` for an internal repository; null when GitHub reports
+none.
 
 Window mode. `--days N` names the window that ends today (N days back), as
 `--since` names its first day; the two are exclusive. `list` over a window with
@@ -48,51 +86,44 @@ request's failure, not the run's. The time budget
 counts every pull request tried, failed or not. The exit codes of a window
 collect cover the run itself.
 
-Parts. The agent re-emits each file as tool arguments, so one call is kept
-under a text budget (`--max-chars`, 60,000 by default) far below the door's
-own cap. Nothing is cut to meet it: bodies are never shortened, reordered or
-re-spelled, and a pull request that does not fit is split. Every part repeats
-the pull request itself (the card is rewritten by each call, so its turns
-cannot be split) with a disjoint, ordered slice of the conversations, and
-EVERY part, the last included, carries the real number of conversations as
-`conversation_count`. A part sent without it would read as a complete listing
-and retire every conversation the other parts wrote. The trades: a split pull
-request never retires a conversation deleted on GitHub, its card keeps the
-partial-import notice, a re-import writes again, and each part spends one unit
-of the tenant's daily brain write budget. Pull-request-level turns are capped
-at 99 by the door and cannot be split; the report says when some stayed out.
+Changed files. `files` lists the paths the pull request changed, in path order
+(Python string order), without duplicates, at most 300, and `file_count` is the
+real number (the largest of GitHub's own counts and the listing). A path over
+1,024 characters, or not already canonical and repo-relative (surrounding
+whitespace, a control character, a backslash, a leading `/`, an empty, `.` or
+`..` segment), is left out (never cut or rewritten, because that names another
+file, and the door would refuse the whole card).
 
-Changed files. Every part carries `pull_request.files`: the paths the pull
-request changed with their added and deleted line counts, in path order (Python
-string order), without duplicates, at most 300. A path over 1,024 characters,
-or not already canonical and repo-relative (surrounding whitespace, a control
-character, a backslash, a leading `/`, an empty, `.` or `..` segment), is left
-out (never cut or rewritten, because that names another file, and the door
-would refuse the whole import). When fewer files
-were sent than the real number, `pull_request.file_count` carries the real
-number (the largest of GitHub's own counts and the listing). The list repeats
-in every part the agent re-emits, so its size is charged to the part budget;
-the door does not count it as text, so it is left out of the door-counted
-totals.
+Commits. A pull request carries `head_sha`, its last commit, and a merged one
+`merge_commit_sha`, the commit its file anchors name; a squash merge leaves the
+head commit off the default branch.
 
-Merge commit. A merged pull request carries `pull_request.merge_commit_sha`, the
-commit its file anchors name; a squash merge leaves the head commit off the
-default branch.
-
-Logins. Spelling is identity: a project admin erases a person's conversations
-by login. A bot account is spelled `name[bot]` (once), and a deleted account
-is spelled `ghost`.
+Logins. Spelling is identity: a project admin erases a person by login. A bot
+account is spelled `name[bot]` (once), and a deleted account is spelled
+`ghost`.
 
 `list --since` pages by last update, newest first, and stops at the first pull
 request not updated since the date: a merge or a close always bumps the update
 time, so nothing merged or closed after the date is missed. The date filter
 itself is on the merge or close time (the creation time for an open one).
 
+Busiest file. `busiest` reads the `card.json` files a collect wrote under
+`DIR/<number>/` (only the `--number` ones when given) and prints
+`{"path", "pull_requests", "cards", "runners_up"}`: the changed path that the
+most of those pull requests touched and still exists under `--root` (default:
+the current directory), how many touched it, how many cards were read, and up
+to four next ones. Lockfiles, changelogs, generated or vendored output, images
+and anything under `.fairmind/` are never counted: every pull request touches
+them and nobody asks why. Dependency and version manifests, `build/` and
+`.github/` count only when no other path is left, and pull requests a bot
+opened count only when no person's is left. Ties go to the path in string order. `path` is null when nothing is left. It reads only local
+files and calls nothing.
+
 Exit codes: 0 ok; 2 usage, unsupported remote, an open pull request without
 `--allow-open`, or a pull request that does not exist; 3 `gh` failed (its
-message is relayed); 4 the pull request alone cannot fit one call; 5 the part
-files cannot be written (the one-line message names the path); 127 `gh` not on
-PATH.
+message is relayed); 4 the pull request cannot become a card (an identifier
+over the door's cap, more than 100 participants); 5 the files cannot be written
+(the one-line message names the path); 127 `gh` not on PATH.
 
 stdout carries only the JSON document; diagnostics go to stderr. stdlib only.
 """
@@ -100,28 +131,28 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import unicodedata
 
 from _fm_ignore import makedirs_ignored
 from _plugin_policy import _atomic_write_json
+from login_key import match_key, sanitize
+from source_version import human_texts as compute_texts
+from source_version import source_version as compute_source_version
 
-DEFAULT_MAX_CHARS = 60_000
-MAX_COMMIT_SHAS = 250
 MAX_TITLE_CHARS = 1000
 MAX_URL_CHARS = 2048
 MAX_PATH_CHARS = 1024
 MAX_FILES = 300
-SERVER_MAX_CHARS = 2_000_000
-MAX_CONVERSATIONS = 200
-MAX_THREAD_TURNS = 100
-MAX_PR_TURNS = 99
+MAX_PARTICIPANTS = 100
 MAX_ID_CHARS = 200
 MAX_REPOSITORY_CHARS = 200
 MAX_SOURCE_CHARS = 50
@@ -146,14 +177,12 @@ LIST_QUERY_TEMPLATE = (
 )
 PR_QUERY = (
     "query($owner:String!,$name:String!,$number:Int!){"
-    "repository(owner:$owner,name:$name){nameWithOwner "
+    "repository(owner:$owner,name:$name){nameWithOwner visibility "
     "pullRequest(number:$number){id number url title body state mergedAt "
-    "createdAt changedFiles headRefName mergeCommit{oid} " + _AUTHOR + "}}}"
+    "closedAt createdAt changedFiles headRefName baseRefName headRefOid "
+    "mergeCommit{oid} " + _AUTHOR + "}}}"
 )
 _NODE = "query($id:ID!,$after:String){node(id:$id){... on PullRequest{%s}}}"
-COMMITS_PAGE_QUERY = _NODE % (
-    "commits(first:100,after:$after){" + _PAGE + " nodes{commit{oid}}}"
-)
 FILES_PAGE_QUERY = _NODE % (
     "files(first:100,after:$after){totalCount " + _PAGE
     + " nodes{path additions deletions}}"
@@ -166,10 +195,15 @@ REVIEWS_PAGE_QUERY = _NODE % (
     "reviews(first:100,after:$after){" + _PAGE
     + " nodes{id body state submittedAt createdAt " + _AUTHOR + "}}"
 )
+THREAD_COMMENTS_PAGE_QUERY = (
+    "query($id:ID!,$after:String){node(id:$id){... on PullRequestReviewThread{"
+    "comments(first:100,after:$after){totalCount " + _PAGE
+    + " nodes{id body state createdAt " + _AUTHOR + "}}}}}"
+)
 THREADS_PAGE_QUERY = _NODE % (
     "reviewThreads(first:50,after:$after){totalCount " + _PAGE
     + " nodes{id isResolved isOutdated path line originalLine "
-    "comments(first:100){totalCount nodes{id body createdAt url "
+    "comments(first:100){totalCount nodes{id body state createdAt url "
     + _AUTHOR + " commit{oid} originalCommit{oid}}}}}"
 )
 
@@ -275,7 +309,7 @@ def parse_github_remote(url):
 
 
 def author_of(node):
-    login = (node or {}).get("login")
+    login = sanitize((node or {}).get("login")).strip()
     if not login:
         return {"login": GHOST_LOGIN, "is_bot": False}
     if node.get("__typename") == "Bot":
@@ -289,7 +323,8 @@ def _cap(value, limit):
     return value[:limit] if isinstance(value, str) else value
 
 
-def turn_of(node, at):
+def comment_of(node, at):
+    """A comment as the version and the reading file see it."""
     return {"id": node["id"], "author": author_of(node.get("author")),
             "body": node.get("body") or "", "created_at": at}
 
@@ -300,8 +335,10 @@ def pr_state(state, merged_at):
     return "closed" if state == "CLOSED" else "open"
 
 
-def review_turns(reviews):
-    turns = []
+def review_comments(reviews):
+    """The submitted reviews that say something: a draft that was never sent
+    and a review with no body are left out."""
+    found = []
     for review in reviews:
         if not review:
             continue
@@ -310,46 +347,44 @@ def review_turns(reviews):
         if not (review.get("body") or "").strip():
             continue
         at = review.get("submittedAt") or review.get("createdAt")
-        turns.append(turn_of(review, at))
-    return turns
+        found.append(comment_of(review, at))
+    return found
 
 
-def _line_of(thread):
-    for key in ("line", "originalLine"):
-        value = thread.get(key)
-        if isinstance(value, int) and not isinstance(value, bool):
-            return value
-    return None
+def _whole_thread(thread):
+    """The thread with every one of its comments: the listing carries the
+    first hundred, and a longer thread is read to the end, because the
+    source's version covers what a person said at any position in it."""
+    block = thread.get("comments") or {}
+    nodes = block.get("nodes") or []
+    total = block.get("totalCount")
+    if not isinstance(total, int) or total <= len(nodes) or not thread.get("id"):
+        return thread
+    every, _ = paged(THREAD_COMMENTS_PAGE_QUERY, {"id": thread["id"]},
+                     ("node", "comments"))
+    return dict(thread, comments=dict(block, nodes=every))
 
 
-def conversation_of(thread):
-    comments = thread.get("comments") or {}
-    nodes = [c for c in (comments.get("nodes") or []) if c]
+def thread_of(thread):
+    """A review thread with the comments read from it, or None when it holds
+    none. The thread's own context (path, line, state) is for the reader. A
+    comment of a review that was never submitted is a draft only its writer
+    can see, so it is left out: the version must not depend on who runs the
+    collector."""
+    nodes = [c for c in ((thread.get("comments") or {}).get("nodes") or [])
+             if c and c.get("state") != "PENDING"]
     if not nodes:
         return None
-    first = nodes[0]
-    sent = nodes[:MAX_THREAD_TURNS]
-    turns = [turn_of(c, c.get("createdAt")) for c in sent]
-    conversation = {
+    return {
         "id": thread["id"],
         "resolved": bool(thread.get("isResolved")),
-        "url": _cap(first.get("url"), MAX_URL_CHARS),
-        "file_path": _cap(thread.get("path"), MAX_PATH_CHARS),
-        "line": _line_of(thread),
-        "commit_sha": ((first.get("commit") or {}).get("oid")
-                       or (first.get("originalCommit") or {}).get("oid")
-                       or None),
         "outdated": bool(thread.get("isOutdated")),
-        "turns": turns,
+        "file_path": thread.get("path"),
+        "line": thread.get("line") if isinstance(thread.get("line"), int)
+        else thread.get("originalLine"),
+        "comments": sorted((comment_of(c, c.get("createdAt")) for c in nodes),
+                           key=lambda c: (c["created_at"] or "", c["id"])),
     }
-    total = comments.get("totalCount")
-    if isinstance(total, int) and total > len(turns):
-        conversation["turn_count"] = total
-    return conversation
-
-
-def text_of(turns):
-    return sum(len(t["body"]) for t in turns)
 
 
 def _sendable(path):
@@ -366,92 +401,251 @@ def _sendable(path):
 
 
 def changed_files(nodes, declared):
-    """Return (files sent, the real number). Path order, at most MAX_FILES;
+    """Return (paths sent, the real number). Path order, at most MAX_FILES;
     a path `_sendable` refuses is left out. The real number is the largest of
     GitHub's own counts and the listing, because GitHub stops listing files
     long before it stops counting them."""
-    seen, listed = set(), []
+    listed, seen = [], set()
     for node in nodes:
         path = (node or {}).get("path")
         if not isinstance(path, str) or not path or path in seen:
             continue
         seen.add(path)
-        listed.append({"path": path, "additions": node.get("additions"),
-                       "deletions": node.get("deletions")})
+        listed.append(path)
     counts = [n for n in declared
               if isinstance(n, int) and not isinstance(n, bool)]
     total = max([len(listed)] + counts)
-    fitting = sorted((f for f in listed if _sendable(f["path"])),
-                     key=lambda f: f["path"])
+    fitting = sorted(path for path in listed if _sendable(path))
     return fitting[:MAX_FILES], total
 
 
-def plan_parts(description, pr_turns, conversations, max_chars, overhead=0):
-    """Return (pr turns sent, pr turn count or None, parts, skipped ids).
-    Counting is `len()` on `str`, as the door counts. `overhead` is the size
-    of what every part repeats but the door does not count as text (the changed
-    files): it is charged to the part budget only, never to the server cap."""
-    desc_len = len(description or "")
-    if desc_len > SERVER_MAX_CHARS:
-        raise TooLarge("the description alone is over the server's text cap")
-    pr_total = len(pr_turns)
-    sent = list(pr_turns[:MAX_PR_TURNS])
-    base = desc_len + text_of(sent)
-    while base > SERVER_MAX_CHARS and sent:
-        base -= len(sent.pop()["body"])
-    pr_turn_count = pr_total if len(sent) < pr_total else None
-    budget = max(max_chars, base + overhead)
-    parts, current, used, skipped = [], [], base + overhead, []
-    for conv in conversations:
-        size = text_of(conv["turns"])
-        if base + size > SERVER_MAX_CHARS:
-            skipped.append(conv["id"])
-            continue
-        if current and (used + size > budget
-                        or len(current) >= MAX_CONVERSATIONS):
-            parts.append(current)
-            current, used = [], base + overhead
-        current.append(conv)
-        used += size
-    if current or not parts:
-        parts.append(current)
-    return sent, pr_turn_count, parts, skipped
-
-
-def _logins(pull_request, conversations):
-    found = {pull_request["author"]["login"]}
-    for turn in pull_request["turns"]:
-        found.add(turn["author"]["login"])
-    for conv in conversations:
-        for turn in conv["turns"]:
-            found.add(turn["author"]["login"])
-    return found
-
-
-def _refuse_over_cap(pull_request, parts):
+def _refuse_over_cap(card):
     """The door refuses an over-cap id, repository or source outright, and an
     id cannot be trimmed without changing which record it names: refuse here."""
-    named = [("source", pull_request["source"], MAX_SOURCE_CHARS),
-             ("repository", pull_request["repository"], MAX_REPOSITORY_CHARS),
-             ("pull request id", pull_request["id"], MAX_ID_CHARS)]
-    named += [("pull request turn id", t["id"], MAX_ID_CHARS)
-              for t in pull_request["turns"]]
-    for part in parts:
-        for conv in part:
-            named.append(("conversation id", conv["id"], MAX_ID_CHARS))
-            named += [("conversation turn id", t["id"], MAX_ID_CHARS)
-                      for t in conv["turns"]]
-    for label, value, cap in named:
+    for label, value, cap in (
+            ("source", card["source"], MAX_SOURCE_CHARS),
+            ("repository", card["repository"], MAX_REPOSITORY_CHARS),
+            ("pull request id", card["id"], MAX_ID_CHARS)):
         if len(value) > cap:
             raise TooLarge("the %s %r is %d characters, over the door's cap "
                            "of %d; it cannot be trimmed, so nothing was written"
                            % (label, value[:40] + "...", len(value), cap))
 
 
-def build_parts(repo, number, max_chars, allow_open):
+def _attributed(comments):
+    """The comments with a deleted account's author removed: nobody wrote
+    them that the version can count as a person."""
+    return [dict(c, author=None) if c["author"]["login"] == GHOST_LOGIN else c
+            for c in comments]
+
+
+def visibility_of(word):
+    """The repository's own word for who can see it, as the door spells it."""
+    return {"PUBLIC": "public", "PRIVATE": "private",
+            "INTERNAL": "restricted"}.get(str(word or "").upper())
+
+
+def participants_of(author, comments):
+    """The people (and bots) who took part, once each, in login order. A
+    deleted account is nobody to erase and is not listed."""
+    found = {}
+    for who in [author] + [c["author"] for c in comments]:
+        if who["login"] != GHOST_LOGIN:
+            found.setdefault(match_key("github", who["login"]), who)
+    people = [found[key] for key in sorted(found)]
+    if len(people) > MAX_PARTICIPANTS:
+        raise TooLarge("the pull request has %d participants, over the door's "
+                       "cap of %d; they cannot be cut without hiding a person "
+                       "from an erasure" % (len(people), MAX_PARTICIPANTS))
+    return people
+
+
+def _quote(text):
+    return "\n".join(("> " + line) if line else ">"
+                     for line in (text or "").splitlines()) or ">"
+
+
+def token(value):
+    """A value as one whitespace-free word, the way the reading file spells a
+    login or a timestamp, so that a header line has a fixed grammar whatever
+    the source put in the field. `redact_reading` spells an erased login the
+    same way."""
+    return re.sub(r"\s+", "_", str(value))
+
+
+REDACTED_NAME = "redacted.json"
+
+
+def _reading_digest(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def redaction_record(read_path):
+    """The logins a reading file was redacted for, as `{"logins": [...],
+    "staged": {path: [logins]}}`. The record is bound to the file's bytes: a
+    reading file written again (a new collection) or edited by hand since
+    carries no redaction, so the record is empty then."""
+    empty = {"logins": [], "staged": {}}
+    try:
+        with open(read_path, encoding="utf-8") as handle:
+            digest = _reading_digest(handle.read())
+        with open(os.path.join(os.path.dirname(os.path.abspath(read_path)),
+                               REDACTED_NAME), encoding="utf-8") as handle:
+            record = json.load(handle)
+    except (OSError, UnicodeError, ValueError):
+        return empty
+    if not isinstance(record, dict) or record.get("read_sha256") != digest:
+        return empty
+    logins = [str(x) for x in record.get("logins") or []]
+    staged = record.get("staged") if isinstance(record.get("staged"), dict) else {}
+    return {"logins": logins,
+            "staged": {str(k): [str(x) for x in v] for k, v in staged.items()
+                       if isinstance(v, list)}}
+
+
+def save_redaction_record(read_path, logins=(), staged_out=None,
+                          record=None):
+    """Add `logins` (the ones the file was just redacted for) and, with
+    `staged_out`, the redactions a card staged at that path covers. Written
+    after the file itself, bound to its present bytes. `record` is what
+    `redaction_record` said before the file was rewritten."""
+    record = record if record is not None else redaction_record(read_path)
+    with open(read_path, encoding="utf-8") as handle:
+        source = reading_source(handle.read())
+    held = {match_key(source, x): x for x in record["logins"]}
+    for login in logins:
+        held.setdefault(match_key(source, login), _held(login))
+    record["logins"] = sorted(held.values())
+    if staged_out is not None:
+        record["staged"][os.path.abspath(staged_out)] = sorted(held.values())
+    with open(read_path, encoding="utf-8") as handle:
+        record["read_sha256"] = _reading_digest(handle.read())
+    target = os.path.join(os.path.dirname(os.path.abspath(read_path)),
+                          REDACTED_NAME)
+    _atomic_write_text(target, json.dumps(record, indent=2, sort_keys=True)
+                       + "\n")
+
+
+def _who(comment):
+    return token(comment["author"]["login"]) + (
+        " (bot)" if comment["author"]["is_bot"] else "")
+
+
+DESCRIPTION_HEADING = "## Description"
+CONVERSATION_HEADING = "## Conversation"
+
+
+REVIEW_THREADS_HEADING = "## Review threads"
+ERASED_COMMENT = "(a comment by an erased account was left out)"
+ERASED_DESCRIPTION = "(the description by an erased account was left out)"
+_STATE_LINE = re.compile(r"^(State: .*, author )(\S+)(, opened .*)$")
+_COMMENT_HEADER = {"conversation": re.compile(r"^### (\S+?)(?: \(bot\))?, .*$"),
+                   "threads": re.compile(r"^- (\S+?)(?: \(bot\))?, .*$")}
+
+
+_TRACKER_LINE = re.compile(r"^Tracker: (\S+) ", re.M)
+
+
+def reading_source(text):
+    """The source a reading file was written for: a ticket's names its tracker
+    on the line before its description, a pull request's is GitHub."""
+    head = text.split("\n" + DESCRIPTION_HEADING + "\n", 1)[0]
+    found = _TRACKER_LINE.search(head)
+    return found.group(1) if found else "github"
+
+
+def _held(login):
+    """How a redaction record spells a login: scrubbed, stripped, casefolded
+    and without whitespace. Whoever reads the record compares by the brain's
+    key under the reading file's own source."""
+    return token(sanitize(login).strip().casefold())
+
+
+def redact_reading(text, erased):
+    """Return (the reading file without what the `erased` logins wrote, the
+    number of comments left out, whether the description was). Every text of
+    the source is quoted in the file, so a comment is its header line and the
+    quoted lines after it, and no quoted text can pass for a header."""
+    source = reading_source(text)
+    erased = {match_key(source, e) for e in erased}
+    out, section, skipping, removed, dropped = [], None, False, 0, False
+    author_erased = False
+    for line in text.split("\n"):
+        if line.startswith(">"):
+            if skipping:
+                continue
+            if section == "description" and author_erased:
+                if not dropped:
+                    out.append(ERASED_DESCRIPTION)
+                    dropped = True
+                continue
+            out.append(line)
+            continue
+        skipping = False
+        state = _STATE_LINE.match(line)
+        if state and section is None:
+            author_erased = match_key(source, state.group(2)) in erased
+            if author_erased:
+                line = state.group(1) + "(erased)" + state.group(3)
+        elif line == DESCRIPTION_HEADING:
+            section = "description"
+        elif line == CONVERSATION_HEADING:
+            section = "conversation"
+        elif line == REVIEW_THREADS_HEADING:
+            section = "threads"
+        elif section in _COMMENT_HEADER:
+            header = _COMMENT_HEADER[section].match(line)
+            if header and match_key(source, header.group(1)) in erased:
+                out.append(ERASED_COMMENT)
+                skipping, removed = True, removed + 1
+                continue
+        out.append(line)
+    return "\n".join(out), removed, dropped
+
+
+def read_file(card, pr, conversation, threads):
+    """What the agent reads to write its summary. Local only, never sent."""
+    lines = ["# %s#%d: %s" % (card["repository"], card["number"],
+                                " ".join(str(card["title"]).split())),
+             "",
+             "State: %s, author %s, opened %s" % (
+                 pr.get("state"), token(card["author"]["login"]),
+                 card["created_at"]),
+             "Branch: %s -> %s" % (card["head_ref"], card["base_ref"]),
+             "Changed files (%d): %s" % (card["file_count"],
+                                         ", ".join(card["files"]) or "none"),
+             "", DESCRIPTION_HEADING, "",
+             _quote(pr["body"]) if (pr.get("body") or "").strip() else "(none)",
+             "",
+             CONVERSATION_HEADING, ""]
+    if not conversation:
+        lines += ["(none)", ""]
+    for comment in conversation:
+        lines += ["### %s, %s" % (_who(comment), token(comment["created_at"])),
+                  _quote(comment["body"]), ""]
+    lines += ["## Review threads", ""]
+    if not threads:
+        lines += ["(none)", ""]
+    for thread in threads:
+        where = " ".join(str(thread["file_path"] or "(no file)").split())
+        if thread["line"] is not None:
+            where += ":%s" % thread["line"]
+        lines += ["### %s (%s%s)" % (
+            where, "resolved" if thread["resolved"] else "open",
+            ", outdated" if thread["outdated"] else "")]
+        for comment in thread["comments"]:
+            lines += ["- %s, %s" % (_who(comment), token(comment["created_at"])),
+                      _quote(comment["body"])]
+        lines.append("")
+    return "\n".join(lines)
+
+
+def build_card(repo, number, allow_open, agent_accounts=()):
+    """Return (skeleton, reading text, report) for one pull request."""
     owner, name = repo.split("/", 1)
     data = graphql(PR_QUERY, {"owner": owner, "name": name, "number": number})
-    pr = ((data.get("repository") or {}).get("pullRequest"))
+    repository = data.get("repository") or {}
+    pr = repository.get("pullRequest")
     if not pr:
         raise UsageError("pull request %s#%d not found" % (repo, number))
     state = pr_state(pr.get("state"), pr.get("mergedAt"))
@@ -459,90 +653,84 @@ def build_parts(repo, number, max_chars, allow_open):
         raise UsageError("open pull request: pass --allow-open only when the "
                          "person asked for open ones")
     ident = {"id": pr["id"]}
-    commits, _ = paged(COMMITS_PAGE_QUERY, ident, ("node", "commits"))
     comments, _ = paged(COMMENTS_PAGE_QUERY, ident, ("node", "comments"))
     reviews, _ = paged(REVIEWS_PAGE_QUERY, ident, ("node", "reviews"))
-    threads, thread_total = paged(
-        THREADS_PAGE_QUERY, ident, ("node", "reviewThreads"))
+    threads, _ = paged(THREADS_PAGE_QUERY, ident, ("node", "reviewThreads"))
     file_nodes, file_total = paged(FILES_PAGE_QUERY, ident, ("node", "files"))
 
-    commits = [c for c in commits if c]
     comments = [c for c in comments if c]
     reviews = [r for r in reviews if r]
-    threads = [t for t in threads if t]
+    threads = [_whole_thread(t) for t in threads if t]
 
-    turns = [turn_of(c, c.get("createdAt")) for c in comments]
-    turns += review_turns(reviews)
-    turns.sort(key=lambda t: (t["created_at"], t["id"]))
+    conversation = [comment_of(c, c.get("createdAt")) for c in comments]
+    conversation += review_comments(reviews)
+    conversation.sort(key=lambda c: (c["created_at"], c["id"]))
     keyed = []
     for thread in threads:
-        conv = conversation_of(thread)
-        if conv is not None:
-            first = [c for c in thread["comments"]["nodes"] if c][0]
-            keyed.append(((first.get("createdAt") or "", conv["id"]), conv))
+        found = thread_of(thread)
+        if found is not None:
+            keyed.append(((found["comments"][0]["created_at"] or "",
+                           found["id"]), found))
     keyed.sort(key=lambda pair: pair[0])
-    conversations = [conv for _, conv in keyed]
-    threads_total = max(thread_total or 0, len(conversations))
+    thread_list = [thread for _, thread in keyed]
+    thread_comments = [c for t in thread_list for c in t["comments"]]
+    # A submitted review that said nothing still took part.
+    reviewers = [comment_of(r, None) for r in reviews
+                 if r.get("state") != "PENDING"]
+    author = author_of(pr.get("author"))
+    participants = participants_of(
+        author, conversation + thread_comments + reviewers)
 
-    files, file_count = changed_files(
+    paths, file_count = changed_files(
         file_nodes, (pr.get("changedFiles"), file_total))
-    overhead = len(json.dumps(files, ensure_ascii=False))
-    description = pr.get("body") or None
-    sent, turn_count, parts, skipped = plan_parts(
-        description, turns, conversations, max_chars, overhead)
-    pull_request = {
+    version = compute_source_version(
+        pr["title"], pr.get("body"), pr.get("state"),
+        _attributed(conversation + thread_comments), agent_accounts)
+    card = {
         "source": "github",
         "id": pr["id"],
         "number": pr["number"],
         "repository": repo,
         "url": _cap(pr["url"], MAX_URL_CHARS),
         "title": _cap(pr["title"], MAX_TITLE_CHARS),
-        "description": description,
         "state": state,
-        "author": author_of(pr.get("author")),
+        "author": author,
         "created_at": pr["createdAt"],
-        "commit_shas": [(c.get("commit") or {}).get("oid") for c in commits
-                        if (c.get("commit") or {}).get("oid")][-MAX_COMMIT_SHAS:],
-        "turns": sent,
-        "files": files,
+        "head_ref": pr.get("headRefName"),
+        "base_ref": pr.get("baseRefName"),
+        "files": paths,
+        "file_count": file_count,
+        "participants": participants,
+        "source_version": version,
+        "source_visibility": visibility_of(repository.get("visibility")),
     }
+    if state != "open":
+        card["closed_at"] = pr.get("closedAt") or pr.get("mergedAt")
+    if pr.get("headRefOid"):
+        card["head_sha"] = pr["headRefOid"]
     merge_sha = (pr.get("mergeCommit") or {}).get("oid")
     if state == "merged" and merge_sha:
-        pull_request["merge_commit_sha"] = merge_sha
-    if turn_count is not None:
-        pull_request["turn_count"] = turn_count
-    if len(files) < file_count:
-        pull_request["file_count"] = file_count
-    _refuse_over_cap(pull_request, parts)
-    whole = len(parts) == 1 and not skipped
-    arguments = [{"pull_request": pull_request, "conversations": part,
-                  "conversation_count": None if whole else threads_total}
-                 for part in parts]
-    base = len(description or "") + text_of(sent)
-    in_parts = [conv for part in parts for conv in part]
+        card["merge_commit_sha"] = merge_sha
+    _refuse_over_cap(card)
+    skeleton = {"repository": repo, "agent_accounts": sorted(agent_accounts),
+                "pull_request": card}
     report = {
         "number": pr["number"],
         "id": pr["id"],
+        "repository": repo,
         "url": pr["url"],
         "branch": pr.get("headRefName"),
         "title": pr["title"],
         "state": state,
+        "source_version": version,
+        "source_visibility": card["source_visibility"],
         "changed_files": file_count,
-        "changed_files_sent": len(files),
-        "changed_file_chars": overhead,
-        "parts": len(parts),
-        "conversations_per_part": [len(p) for p in parts],
-        "chars_per_part": [base + sum(text_of(c["turns"]) for c in p)
-                           for p in parts],
-        "pr_turns_total": len(turns),
-        "pr_turns_sent": len(sent),
-        "conversations_total": threads_total,
-        "conversations_sent": len(in_parts),
-        "skipped_too_large": skipped,
-        "max_chars": max_chars,
-        "logins": sorted(_logins(pull_request, in_parts)),
+        "changed_files_sent": len(paths),
+        "human_texts": len(compute_texts(
+            _attributed(conversation + thread_comments), agent_accounts)),
+        "logins": [p["login"] for p in participants],
     }
-    return arguments, report
+    return skeleton, read_file(card, pr, conversation, thread_list), report
 
 
 def _today():
@@ -624,38 +812,120 @@ def _repo_of(args):
     return repo
 
 
+# Paths every pull request touches and nobody asks about: lockfiles,
+# changelogs, generated or vendored output, binary assets.
+NOT_BUSIEST_NAMES = frozenset((
+    "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml",
+    "poetry.lock", "Pipfile.lock", "uv.lock", "Cargo.lock", "go.sum",
+    "composer.lock", "Gemfile.lock", "packages.lock.json", ".gitignore",
+    "CODEOWNERS"))
+NOT_BUSIEST_DIRS = frozenset((
+    ".fairmind", "node_modules", "dist", "vendor", "coverage",
+    ".next", "__snapshots__", "__generated__", "generated"))
+# Version bumps touch these too, but they can hold real decisions: asked
+# about only when nothing else is left.
+LAST_RESORT_NAMES = frozenset((
+    "package.json", "pyproject.toml", "setup.cfg", "Cargo.toml", "go.mod",
+    "pom.xml"))
+LAST_RESORT_DIRS = frozenset(("build", ".github"))
+NOT_BUSIEST_SUFFIXES = (
+    ".lock", ".min.js", ".min.css", ".map", ".snap", ".png", ".jpg", ".jpeg",
+    ".gif", ".ico", ".svg", ".pdf", ".woff", ".woff2")
+RUNNERS_UP = 4
+
+
+def worth_asking(path):
+    """Whether a changed path is a fair subject for a first question."""
+    segments = path.split("/")
+    name = segments[-1]
+    # Only a repo-relative path: anything else would be probed outside --root.
+    return not (path.startswith("/") or ".." in segments
+                or name in NOT_BUSIEST_NAMES
+                or name.upper().startswith("CHANGELOG")
+                or name.lower().endswith(NOT_BUSIEST_SUFFIXES)
+                or any(seg in NOT_BUSIEST_DIRS for seg in segments[:-1]))
+
+
+def last_resort(path):
+    segments = path.split("/")
+    return (segments[-1] in LAST_RESORT_NAMES
+            or any(seg in LAST_RESORT_DIRS for seg in segments[:-1]))
+
+
+def busiest_file(out_dir, numbers, root):
+    """The changed path most of the collected pull requests touched."""
+    if not os.path.isdir(out_dir):
+        raise UsageError("%s is not a directory" % out_dir)
+    wanted = {str(n) for n in numbers}
+    counts, bot_counts, cards = {}, {}, 0
+    for name in sorted(os.listdir(out_dir)):
+        if wanted and name not in wanted:
+            continue
+        path = os.path.join(out_dir, name, "card.json")
+        try:
+            with open(path, encoding="utf-8") as handle:
+                card = json.load(handle)["pull_request"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        cards += 1
+        # A bot's pull requests (dependency bumps) count only when no person's
+        # is left: they touch the same few files and nobody asks why.
+        author = card.get("author")
+        tally = bot_counts if isinstance(author, dict) and author.get("is_bot") else counts
+        for changed in set(card.get("files") or ()):
+            if isinstance(changed, str) and worth_asking(changed):
+                tally[changed] = tally.get(changed, 0) + 1
+    counts = counts or bot_counts
+    present = {p: n for p, n in counts.items()
+               if os.path.isfile(os.path.join(root, p))}
+    preferred = {p: n for p, n in present.items() if not last_resort(p)}
+    ranked = sorted((-n, p) for p, n in (preferred or present).items())
+    rows = [{"path": p, "pull_requests": -n} for n, p in ranked]
+    top = rows[0] if rows else {"path": None, "pull_requests": 0}
+    return dict(top, cards=cards, runners_up=rows[1:1 + RUNNERS_UP])
+
+
 def _parser():
-    parser = argparse.ArgumentParser(prog="pr_collect.py")
+    parser = argparse.ArgumentParser(prog="pr_collect.py", allow_abbrev=False)
     sub = parser.add_subparsers(dest="command", required=True)
-    lst = sub.add_parser("list")
+    lst = sub.add_parser("list", allow_abbrev=False)
     lst.add_argument("--repo")
     lst.add_argument("--states", default="MERGED,CLOSED")
     lst.add_argument("--since")
     lst.add_argument("--days", type=int)
     lst.add_argument("--limit", type=int)
     lst.add_argument("--out")
-    sub.add_parser("remote")
-    col = sub.add_parser("collect")
+    sub.add_parser("remote", allow_abbrev=False)
+    red = sub.add_parser("redact", allow_abbrev=False)
+    red.add_argument("--read", required=True)
+    red.add_argument("--erased", action="append", required=True)
+    bus = sub.add_parser("busiest", allow_abbrev=False)
+    bus.add_argument("--out-dir", required=True)
+    bus.add_argument("--number", type=int, action="append", default=[])
+    bus.add_argument("--root", default=".")
+    col = sub.add_parser("collect", allow_abbrev=False)
     col.add_argument("--repo")
     which = col.add_mutually_exclusive_group(required=True)
     which.add_argument("--number", type=int)
     which.add_argument("--since")
     which.add_argument("--days", type=int)
     col.add_argument("--out-dir", required=True)
-    col.add_argument("--max-chars", type=int, default=DEFAULT_MAX_CHARS)
+    col.add_argument("--agent-account", action="append", default=[])
     col.add_argument("--allow-open", action="store_true")
     col.add_argument("--max-seconds", type=int, default=DEFAULT_MAX_SECONDS)
     col.add_argument("--resume", action="store_true")
     return parser
 
 
-def _write_parts(out_dir, number, arguments):
+def _write_card(out_dir, number, skeleton, reading):
+    """Write `card.json` and `read.md`; return both paths. The part files of
+    an earlier shape are removed so none can be sent; a staged `write.json`
+    stays, because it belongs to the version it was staged for."""
     target = os.path.join(out_dir, str(number))
-    files = []
+    card, read = (os.path.join(target, "card.json"),
+                  os.path.join(target, "read.md"))
     try:
         makedirs_ignored(target)
-        # Only this collector's own part files are removed: --out-dir is the
-        # caller's choice, so nothing else under it is ever deleted.
         for name in os.listdir(target):
             if re.match(r"^part-\d+\.json$", name):
                 os.remove(os.path.join(target, name))
@@ -663,15 +933,29 @@ def _write_parts(out_dir, number, arguments):
                 if re.match(r"^part-\d+\.json$", n)]
         if left:
             raise OSError(0, "stale %s could not be removed" % left[0])
-        for index, call in enumerate(arguments, 1):
-            path = os.path.join(target, "part-%d.json" % index)
-            with open(path, "w", encoding="utf-8") as handle:
-                json.dump(call, handle, ensure_ascii=False)
-            files.append(path)
+        _atomic_write_json(card, skeleton, prefix=".fm-pr-", mode=0o644,
+                           indent=2, sort_keys=True, trailing_newline=True)
+        _atomic_write_text(read, reading)
     except OSError as err:
-        raise WriteError("cannot write the part files under %s: %s"
+        raise WriteError("cannot write the card files under %s: %s"
                          % (target, err.strerror or err.__class__.__name__))
-    return files
+    return card, read
+
+
+def _atomic_write_text(path, text):
+    directory = os.path.dirname(os.path.abspath(path))
+    fd, tmp = tempfile.mkstemp(prefix=".fm-pr-", suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _window(args):
@@ -715,6 +999,51 @@ def _read_report(path):
     return report
 
 
+class ReportUnreadable(Exception):
+    """A collection report that is not a JSON object."""
+
+
+class ReportMissing(ReportUnreadable):
+    """A collection report whose file does not exist."""
+
+
+def read_collection_report(path):
+    """The collection report at `path`, an object. A consumer sends or links
+    only the pull requests of a report whose `complete` is true; this reader
+    does not decide that, `skipped_report` names the ones left out."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            report = json.load(handle)
+    except FileNotFoundError:
+        raise ReportMissing("%s does not exist" % path)
+    except (OSError, ValueError):
+        raise ReportUnreadable("cannot read the collection report %s as JSON"
+                               % path)
+    if not isinstance(report, dict):
+        raise ReportUnreadable("the collection report %s must be an object"
+                               % path)
+    return report
+
+
+def repeated_repository(report, seen):
+    """The repository `report` names when an earlier report of the same run
+    already did (compared case-insensitively), else None; the name is added
+    to `seen`, the set of lower-cased names of the reports read so far."""
+    name = str(report.get("repository") or "")
+    if name and name.lower() in seen:
+        return name
+    if name:
+        seen.add(name.lower())
+    return None
+
+
+def skipped_report(path, report):
+    """The entry that lists a report left out because its collection did not
+    finish."""
+    return {"path": path, "repository": report.get("repository"),
+            "reason": "the collection is not complete"}
+
+
 def _frozen_since(path, repo, since):
     """The first day of an unfinished collect of this repository, when it
     began no more than a day before `since`: a `--days` window moves at UTC
@@ -752,7 +1081,16 @@ def _final(entry):
             or entry.get("attempts", 1) >= MAX_ATTEMPTS)
 
 
-def collect_window(repo, since, out_dir, max_chars, max_seconds, resume):
+def _is_card_report(report):
+    """Whether every collected entry is of the current shape: it names its
+    card and its source version. A report of the part-file shape has neither,
+    and its entries are collected again."""
+    return all(isinstance(p, dict) and p.get("card") and p.get("source_version")
+               for p in report["pull_requests"])
+
+
+def collect_window(repo, since, out_dir, max_seconds, resume,
+                   agent_accounts=()):
     """Collect every merged or closed pull request of the window, one at a
     time, within `max_seconds`; see the module docstring."""
     rows = list_pull_requests(repo, ("MERGED", "CLOSED"), since, None)
@@ -763,7 +1101,8 @@ def collect_window(repo, since, out_dir, max_chars, max_seconds, resume):
     # changed since, so it is started over.
     if report is not None and (report.get("since") != since
                                or report.get("repository") != repo
-                               or report.get("complete") is True):
+                               or report.get("complete") is True
+                               or not _is_card_report(report)):
         report = None
     report = report or {"pull_requests": [], "not_collected": []}
     done = _settled(report)
@@ -784,8 +1123,10 @@ def collect_window(repo, since, out_dir, max_chars, max_seconds, resume):
         report["not_collected"] = [p for p in report["not_collected"]
                                    if p["number"] != number]
         try:
-            arguments, entry = build_parts(repo, number, max_chars, False)
-            entry["files"] = _write_parts(out_dir, number, arguments)
+            skeleton, reading, entry = build_card(
+                repo, number, False, agent_accounts)
+            entry["card"], entry["read"] = _write_card(
+                out_dir, number, skeleton, reading)
             report["pull_requests"].append(entry)
             now += 1
         except (GhFatal, GhMissing):
@@ -825,7 +1166,6 @@ def collect_window(repo, since, out_dir, max_chars, max_seconds, resume):
         "pull_requests": len(report["pull_requests"]),
         "collected_now": now,
         "remaining": remaining,
-        "parts": sum(p.get("parts", 0) for p in report["pull_requests"]),
         "not_collected": report["not_collected"],
         "logins": logins,
         "collected": path,
@@ -835,10 +1175,31 @@ def collect_window(repo, since, out_dir, max_chars, max_seconds, resume):
     }
 
 
+def _redact(args):
+    try:
+        with open(args.read, encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError as err:
+        raise UsageError("cannot read %s: %s" % (args.read, err.strerror))
+    before = redaction_record(args.read)
+    text, removed, dropped = redact_reading(text, args.erased)
+    try:
+        _atomic_write_text(args.read, text)
+        save_redaction_record(args.read, args.erased, record=before)
+    except OSError as err:
+        raise WriteError("cannot write %s: %s" % (args.read, err.strerror))
+    return {"read": args.read, "comments_left_out": removed,
+            "description_left_out": dropped}
+
+
 def _run(args):
     if args.command == "remote":
         repo = _repo_of(argparse.Namespace(repo=None))
         return {"repository": repo, "git_remote": public_remote(_origin_url())}
+    if args.command == "redact":
+        return _redact(args)
+    if args.command == "busiest":
+        return busiest_file(args.out_dir, args.number, args.root)
     repo = _repo_of(args)
     if args.command == "list":
         states = tuple(s.strip().upper() for s in args.states.split(",")
@@ -857,9 +1218,6 @@ def _run(args):
             _write_json(args.out, rows)
             return {"pull_requests": len(rows), "out": args.out}
         return rows
-    if not 1 <= args.max_chars <= SERVER_MAX_CHARS:
-        raise UsageError("--max-chars must be between 1 and %d"
-                         % SERVER_MAX_CHARS)
     since = _window(args)
     if since is not None:
         if args.resume and args.days is not None:
@@ -869,13 +1227,14 @@ def _run(args):
             raise UsageError("--allow-open applies to one --number only")
         if not 1 <= args.max_seconds <= 3600:
             raise UsageError("--max-seconds must be between 1 and 3600")
-        return collect_window(repo, since, args.out_dir, args.max_chars,
-                              args.max_seconds, args.resume)
+        return collect_window(repo, since, args.out_dir, args.max_seconds,
+                              args.resume, args.agent_account)
     if args.resume:
         raise UsageError("--resume applies to a --since/--days collect only")
-    arguments, report = build_parts(
-        repo, args.number, args.max_chars, args.allow_open)
-    report["files"] = _write_parts(args.out_dir, args.number, arguments)
+    skeleton, reading, report = build_card(
+        repo, args.number, args.allow_open, args.agent_account)
+    report["card"], report["read"] = _write_card(
+        args.out_dir, args.number, skeleton, reading)
     return report
 
 

@@ -134,12 +134,16 @@ def write(session_id, question, entry):
 
 
 def remove(session_id, question):
+    """Delete the entry for `question`; True only for the call whose delete
+    succeeded. Two hooks that read one confirmation race for it, and only the
+    winner may send what it prepared."""
     if not _usable(session_id):
-        return
+        return False
     try:
         os.remove(os.path.join(_session_dir(session_id), question_key(question) + ".json"))
     except Exception:  # noqa: BLE001 - already gone is the goal
-        pass
+        return False
+    return True
 
 
 def remove_by_node(session_id, node_id):

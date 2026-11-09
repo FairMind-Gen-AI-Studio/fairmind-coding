@@ -1,41 +1,33 @@
 # Playbook — a new requirement from what exists
 
-On-demand detail for the `brain-new-requirement` skill: how to search so precedents actually
-surface, how to read a timeline, the reference shapes the write door takes, and a worked
-example end to end.
+On-demand detail for the `brain-new-requirement` skill: how to ask so precedents actually
+surface, how to read an answer, the report shape the write door takes, and a worked example end
+to end.
 
 ## The tool surface
 
 | Tool | Used for | Used here |
 |---|---|---|
-| `mcp__Fairmind__Brain_search` | text and meaning search across the brain | yes — Step 2 |
-| `mcp__Fairmind__Brain_timeline` | a record's history: status changes, retirement, reason, the decision behind it | yes — Step 3 |
-| `mcp__Fairmind__Brain_context` | knowledge anchored on a file, symbol or directory | yes — Step 4, the light sketch when no repository is bound |
-| `mcp__Fairmind__Brain_get` | one record's body, in chunks | on demand only |
-| `mcp__Fairmind__Brain_expand` | the chunks around one already fetched | on demand only |
-| `mcp__Fairmind__Brain_record_requirement` | record a draft | **yes — the only write** |
-| `mcp__Fairmind__Brain_record_issue` | record an issue draft | no |
-| `mcp__Fairmind__Brain_record_decision` | record an architectural decision | no |
-| `mcp__Fairmind__Brain_supersede_decision` | replace a decision with a newer one | no |
-| `mcp__Fairmind__Brain_set_status` | change a record's status | **never** |
+| `mcp__Fairmind__Brain_ask` | what the brain holds on a question, as short considerations with their references | yes — Step 2 |
+| `mcp__Fairmind__Brain_tell` | report a need, a story or a requirement | **yes — the only write** |
 
-🔴 **`mcp__Fairmind__Brain_set_status` is not on this skill's menu**, including for the drafts
-it just wrote. Confirmation is a human act performed in the review queue.
+No other brain tool is on this skill's menu. A record's status and review state are decided by
+the brain from the report and from who sends it; confirmation is a human act performed in the
+review queue.
 
-## Searching so precedents actually surface
+## Asking so precedents actually surface
 
-`mcp__Fairmind__Brain_search` takes `query`, `project`, `kinds`, `status`, `review_state`,
-`include_invalidated`, `date_from`, `date_to`, `time_cutoff`, `k` and `cursor`. It pages: the
-response carries `result_count`, `results_omitted` and `next_cursor`, and a `next_cursor` that
-is not null is the next page of the same request — sent back as `cursor`, with the same
-filters, until it comes back null. A precedent search stops after five pages and says so when
-a cursor was still there.
+`mcp__Fairmind__Brain_ask` takes `question` (one to two thousand characters), `question_type`
+(`file`, `precedent`, `contraindications` or `context`), `project` and, for a file,
+`subject: {"file": {"repository": ..., "path": ..., "symbol": ...}}`. Here the type is
+`precedent`: what the brain holds on the idea.
 
-**`kinds`, `status` and `review_state` each take one value or a list.** The removal states are
-one call, `status: ["retired", "superseded"]`, and a terminal status in the filter brings back
-the records that left the current view.
+The answer is `considerations` (each a `text`, whether a person confirmed what it rests on, and
+its `references`), `further_reading` (records found and not cited), `composed`, `coverage` and,
+when nothing could be composed, a `reason`. A reference is a `card`, a `document`, a `file`
+(repository and path), a `ticket`, a `pull_request` or a `commit`.
 
-A search that finds nothing is usually a search phrased in today's words:
+A question that finds nothing is usually a question phrased in today's words:
 
 1. **The user's words, verbatim.** "let customers pause a subscription".
 2. **The domain noun on its own.** "subscription pause", "dunning", "grace period".
@@ -46,144 +38,152 @@ A search that finds nothing is usually a search phrased in today's words:
 5. **The adjacent noun.** A precedent often lives one concept away — "trial extension",
    "account hold", "suspension".
 
-Then, for each phrasing that returned anything, run it again for the removal states —
-`status: ["retired", "superseded"]`, in one call. Those results carry the recorded `reason`.
+At most four `precedent` questions in a run. Put the phrasings that returned something first.
 
-Widen `kinds` beyond requirements. Tasks say what was actually built, issues say what broke,
-decisions say why it changed — and a feature's real history is usually in the last two.
+A consideration that is not confirmed is somebody's unconfirmed draft — possibly an agent's —
+and is always cited as `{text} (proposed, not yet confirmed)`.
 
-## Reading a timeline
+## Reading what happened to a precedent
 
-`mcp__Fairmind__Brain_timeline` takes a `knowledge_id` (or an anchor) and returns
-`{'events': [...], 'chains': [...], 'evidence': {...}}`. What to pull out:
+An answer says what the brain holds; when a precedent was removed or replaced, the
+consideration says so and the reference beside it names the record behind the change. Pull out:
 
-- **`created`** — when the requirement first existed.
-- **Each status change** — the path from draft to whatever it is now.
-- **`retired`** — the date, the **`reason`** as recorded, and the decision reference behind it.
-- **The supersession chain** — what replaced it, and what replaced that. Superseded records are
-  labelled, never hidden, so a chain three links long is readable end to end.
+- **What it was**, and **when it first existed**, if the answer says.
+- **What happened to it** — removed, retired, replaced — and when.
+- **The reason**, as a quote. "Removed because per-seat pausing made the invoice reconciliation
+  ambiguous" is actionable; "removed for billing reasons" is a paraphrase that loses the very
+  thing the reader needed.
+- **The record behind the change**, by title and id, from the references.
 
-Report the reason **as a quote**. "Removed because per-seat pausing made the invoice
-reconciliation ambiguous" is actionable; "removed for billing reasons" is a paraphrase that
-loses the very thing the reader needed.
-
-**When a timeline records a retirement with no reason**, say exactly that: "retired on
-{date}, no reason recorded". Inventing a plausible reason is the single worst failure this
-skill can produce — it manufactures a decision nobody made and it is indistinguishable from a
-real one afterwards.
+**When the answer records a removal with no reason**, say exactly that: "removed, no reason
+recorded", and ask the person what they know. Inventing a plausible reason is the single worst
+failure this skill can produce — it manufactures a decision nobody made and it is
+indistinguishable from a real one afterwards.
 
 ## The impact step: `brain-impact` first, the sketch only without a repository
 
 With a bound `repository_id`, Step 4 is `brain-impact`. Hand it the idea and the precedents
-Step 2 found — node ids plus both states — and it skips its own search. What comes back is a
-dependency-aware answer in its usages-only mode: the precedents' anchors with their resolved
-tiers, the dependents of each symbol from the code graph, the architecture components the
-files sit in and the components that depend on those, and the decisions, incidents and
-criteria recorded at each place. It records nothing; its findings reach the brain through
-this skill's own write step, as the drafts' anchors and evidence.
+Step 2 found — card ids plus both states — and it skips its own questions. What comes back is
+a dependency-aware answer in its usages-only mode: the files the precedents point to, what the
+brain holds about each as conclusions with references, and the dependents of each symbol from
+the code graph. It records nothing; its findings reach the brain through this skill's own write
+step, as the drafts' files and their cited constraints.
 
 With no repository bound, `brain-impact` cannot run, and Step 4 falls back to a sketch. Take
-the anchors of the closest precedents, group them by directory, and call
-`mcp__Fairmind__Brain_context` per directory with `granularity: "file"` and
-`detail_level: "minimal"`. That gives, per module: what is anchored there now, and
-`uncovered[]` for the files nothing explains.
+the file references of the closest precedents and group them by directory. State the limit in
+the output. The sketch:
 
-State the limit in the output. The sketch:
-
-- **does** show where the previous attempt lived and what knowledge sits there today;
+- **does** show where the previous attempt lived;
 - **does not** follow call graphs, imports or runtime dependencies;
 - **does not** claim to be complete.
 
 Name in the report which of the two produced the impact section. Two analyses of different
 strengths presented in the same voice is how a sketch gets read as a guarantee.
 
-## Reference shapes on the write door
+## The report on the write door
 
-`mcp__Fairmind__Brain_record_requirement` takes `project`, `req_type`, `title`, `text`,
-`natural_key`, `refines`, `anchors`, `precedent_refs`, `status`, `evidence`, `agent`,
-`session_ref`, `task_ref`.
+Every drafted item is a `Brain_tell` report with `intent: "need"`:
 
-- **`refines`** points at the parent: a user story refines its need, a functional requirement
-  refines its story, a technical requirement refines the functional one it constrains. Send it
-  as `[{"node_id": <id>}]` — **the JSON key is always `node_id`**, never `knowledge_id`, never
-  the natural key. The `<id>` value is what the parent's own write response returned:
-  `knowledge_id` on a `{'status': 'ok', ...}` response, or `target` when the parent's write
-  came back `revision_proposed` instead (that response carries no `knowledge_id`). The
-  platform stores a transformed form of the natural key you sent, so a raw natural-key
-  reference silently derives the wrong node id and the edge is never built; nothing about the
-  response says so. This is why the need is recorded **first**: no id to refine by exists
-  until its write responds, and every story needs that value.
-- **`precedent_refs`** are node ids of what the draft rests on, including retired records. A
-  retired precedent is often the most informative thing on the draft. The field carries node
-  ids only — it has no room for a review state, which is why the state belongs in the draft's
-  own `text` and in the report: `precedent: {node_id} (proposed, not yet confirmed)`. A
-  reviewer reading the recorded draft has nothing else to tell a confirmed record from an
-  agent's guess.
-- **`anchors`** carry `file_path` plus `repo_ref` and `repo_ref_scheme` (the bound
-  `repository_id` and the literal `"code-ingestion"` — this write door does not resolve a
-  repository name into an id itself) and, where known, `symbol_name`, `symbol_type`
-  (`FUNCTION`, `CLASS`, `FILE`) and `start_line_hint`. Only anchor what the sketch actually
-  found; a new requirement legitimately has none. When `repository_id` is not bound, omit the
-  anchor rather than send one without `repo_ref`, and say so explicitly in the report next to
-  that draft — distinct from "no anchor found," which is a different case.
-- **`evidence`** holds the short quotes the draft rests on — a retirement reason, a line from a
-  decision. Quote, do not paraphrase.
-- **`natural_key`** is required and client-supplied; the platform never synthesizes one.
-
-## The natural key
-
-```
-natural_key = "<module-or-feature>:<slug of the title>"
-slug        = title lowercased, every run of non-alphanumerics collapsed to "-", trimmed
+```json
+{
+  "intent": "need",
+  "repository": "billing-service",
+  "project": "6a8c08657fdafcc39df4e48c",
+  "title": "Customers can suspend billing without losing their account",
+  "summary": "Need. Customers who do not want to pay for a quiet month should pause instead of cancelling and keep their account and history. Rests on: Subscription pause, self-service (removed 2025, reason: paused seats stayed counted in the monthly invoice) (3f2a9c4e5b6d7a8b9c0d1e2f3a4b5c6d, confirmed). Constrained by: Invoices are reconciled per seat-day (confirmed).",
+  "session_ref": "0b0e8d3c-1b6f-4d54-9a39-5f2f4b7d8c11",
+  "agent": "brain-new-requirement"
+}
 ```
 
-Pick the prefix once per idea and reuse it for every draft in the set — the need, its stories,
-and the requirements under them. Write every key into the report. That is what makes the second
-run on the same idea update these drafts instead of minting a parallel set, and it is what lets
-a different person reproduce the run.
+A child names its parent in its `summary`, by the parent's title; nothing in the report links
+the two. The brain links the items to each other, to the code and to what they rest on when it
+places them.
+
+```json
+{
+  "intent": "need",
+  "repository": "billing-service",
+  "project": "6a8c08657fdafcc39df4e48c",
+  "title": "A paused seat is not counted in the monthly invoice",
+  "summary": "Technical requirement. Refines the functional requirement Pause stops billing for the seat. A paused seat is excluded from the seat-day count that reconciliation uses, so a pause cannot be read as a downgrade. Rests on: Invoices are reconciled per seat-day (confirmed).",
+  "files": ["app/billing/invoice.py"],
+  "functions": ["app/billing/invoice.py::count_seat_days"],
+  "documents": [
+    {"url": "https://example.com/docs/invoice-reconciliation", "title": "Invoice reconciliation rules", "summary": "How seat-days are counted and reconciled each month."}
+  ],
+  "session_ref": "0b0e8d3c-1b6f-4d54-9a39-5f2f4b7d8c11",
+  "agent": "brain-new-requirement"
+}
+```
+
+Leave out any field you have nothing true to put in. `task_ref` (the ticket the item belongs to)
+and `task_ref_status` (`todo`, `in_progress`, `done`, `implemented` or `verified`) are added only
+with the person's own words in this conversation. Do not send a requirement type, a key, a
+parent reference, an anchor, a precedent list, `status` or `state`: a report that carries one
+is refused.
+
+Text limits the door enforces and never repairs: a title is one line of at most 256
+characters; a `summary` is at most 1000 characters; at most a hundred files and functions and
+ten related items in all. A control character or a line break in a one-line field is a refusal.
+
+A **change** to a draft this run already told is the report again, in full, with `revises` set
+to that draft's `node_id` (taken from the answer that told it, or from a `conflict` answer):
+
+```json
+{
+  "intent": "need",
+  "repository": "billing-service",
+  "project": "6a8c08657fdafcc39df4e48c",
+  "title": "A paused seat is not counted in the monthly invoice",
+  "summary": "Technical requirement. Refines the functional requirement Pause stops billing for the seat. A paused seat is excluded from the seat-day count, and the exclusion is logged on the invoice line so support can explain it.",
+  "revises": "0123456789abcdef0123456789abcdef",
+  "session_ref": "0b0e8d3c-1b6f-4d54-9a39-5f2f4b7d8c11",
+  "agent": "brain-new-requirement"
+}
+```
 
 ## Response shapes
 
 | Response | Meaning | Do |
 |---|---|---|
-| `{'status': 'ok', 'knowledge_id': …, …}` | the draft landed | count it, carry `knowledge_id` and the natural key into the report — and **capture `knowledge_id`**, it is the value the next draft's `refines` needs. There is no `review_state` on this response; do not wait for one |
-| `{'status': 'revision_proposed', 'proposal_id': …, 'target': …}` | the key matches a record a human confirmed; the record was **not** touched | report the proposal id, continue — and if this item has children, **capture `target`** as the id they refine by (this response has no `knowledge_id`) |
-| `{'status': 'throttled', 'quota': N}` | the tenant's daily write quota is spent | **stop**, report which drafts landed and which did not |
-| `{'retryable': True}` | the quota service was unreachable | one retry, then stop and report |
+| `state: proposed` (with `node_id`) | the draft landed and waits for a person | count it, carry the `node_id` into the report |
+| `state: duplicate` | the same draft was already there; nothing changed | report it that way, never as written |
+| `state: conflict` (with `node_id`) | a record under this title says something different; nothing was overwritten | show the difference; after the person's yes, send it again with `revises` set to that `node_id` |
+| `related[]` | one entry per related document: `created`, `updated`, `unchanged` or `proposed` is linked; `unavailable`, `retry` and `over_cap` are not | name the document and its state |
+| `{'status': 'refused', 'reason': ..., 'message': ...}` | words the brain did not accept (or, for a shape reason, a disagreement with the plugin) | fix the draft and show it again; for a shape reason update the plugin |
+| `{'status': 'throttled', ...}` | the tenant's daily write quota is spent | **stop**, report which drafts landed and which did not |
+| `{'retryable': True}` | not written now | one retry, then stop and report |
 | a refusal naming a configuration key | the tenant is not provisioned for brain writes | quote the key, stop |
 
 A partial write is a normal outcome and it must be reported as one: "the need and two stories
-landed, the four requirements did not — resume at `subscription-pause:…`" is usable. "Some
-drafts were recorded" is not.
+landed, the four requirements did not — resume at *Pause stops billing for the seat*" is usable.
+"Some drafts were recorded" is not.
 
 ## Worked example
 
 > **Idea:** "let customers pause a subscription instead of cancelling."
 
-1. **Search.** "pause subscription" (2 hits), "subscription hold" (1), "billing stops account
-   open" (0), then the removal pass, `status: ["retired", "superseded"]`: it returns
-   *Subscription pause (self-service)*, retired, and nothing superseded. Of the three live hits, two
-   carry `review_state: confirmed` and one is an agent's `proposed` draft — noted as such, and
-   it will be cited as such if the draft rests on it.
-2. **Timeline** on that record: created 2024-03, live 2024-06, retired 2025-01. Reason as
-   recorded: *"paused seats stayed counted in the monthly invoice, so reconciliation could not
-   tell a pause from a downgrade"*. Decision behind it: *Invoices are reconciled per seat-day*,
-   `review_state: confirmed` — so the constraint is a decision somebody made, not a draft.
-3. **Ask.** That reason is about how invoices are reconciled, and that has not changed. Surface
-   it and ask the user before drafting: does the new idea address it, or does it inherit it?
-   The answer becomes an open question on the draft either way.
-4. **Impact.** The repository is bound, so `brain-impact` runs with the three precedents
-   handed over. The retired record anchored on `app/billing/subscription.py` and
-   `app/billing/invoice.py`; the code graph finds seven usages of the pause path across three
-   files, all inside the *Billing* component, which *Invoicing* depends on. The
-   reconciliation requirement and its decision are recorded there; eleven files carry
-   nothing.
+1. **Ask.** "pause subscription" returns three considerations, two confirmed and one an
+   agent's unconfirmed draft — noted as such, and cited as such if the draft rests on it. A
+   second phrasing, "billing stops but the account stays open", adds a fourth. One consideration
+   says *Subscription pause (self-service)* was removed in January 2025 because paused seats
+   stayed counted in the monthly invoice, and its references name the decision *Invoices are
+   reconciled per seat-day*, confirmed.
+2. **What happened.** The reason is quoted as recorded. The decision behind it is confirmed, so
+   the constraint is a decision somebody made, not a draft.
+3. **Ask the person.** That reason is about how invoices are reconciled, and that has not
+   changed. Surface it and ask before drafting: does the new idea address it, or does it inherit
+   it? The answer becomes an open question on the draft either way.
+4. **Impact.** The repository is bound, so `brain-impact` runs with the precedents handed over.
+   The removed feature pointed at `app/billing/subscription.py` and `app/billing/invoice.py`;
+   the code graph finds seven usages of the pause path across three files, and the brain holds
+   the reconciliation decision about the first of them.
 5. **Draft.** Need *Customers can suspend billing without losing their account*; two stories;
    three functional requirements; two technical ones, one of which explicitly states how a
    paused seat is counted — because that is the reason the previous attempt was removed.
-6. **Write.** Prefix `subscription-pause`; the need first, capture its `knowledge_id` from the
-   write response, then the stories naming that `knowledge_id` in `refines`. Every draft
-   carries the retired record in `precedent_refs` and the reconciliation decision in its text
-   — the one `proposed` precedent is cited in that text with its state spelled out, so nobody
-   reads it as settled. All land as `proposed`; the report says so, prints the natural keys for
-   readability, and prints how many precedents were themselves unconfirmed.
+6. **Write.** The need first, then its stories, each naming its parent by title in its
+   `summary`. Every draft cites the removed feature and the reconciliation decision; the one
+   unconfirmed precedent is cited with its state spelled out, so nobody reads it as settled. All
+   land as `proposed`; the report says so and prints how many precedents were themselves
+   unconfirmed.

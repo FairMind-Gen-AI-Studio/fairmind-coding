@@ -106,34 +106,52 @@ session with no requirements is an answer, not a reason to reach for a wider cal
 
 Step 7 asks "what documents exist about this topic". It cannot answer the question that
 actually changes an implementation: **what has this company already decided, specified or
-hit a problem with, in the files I am about to touch.** `mcp__Fairmind__Brain_context`
-answers that one — it takes a path and returns the knowledge anchored under it.
+hit a problem with, in the files I am about to touch.** `mcp__Fairmind__Brain_ask`
+answers that one — it takes a question about a file and returns a short list of
+**considerations**, each a sentence the brain composed, with whether a person confirmed what it
+rests on and the references behind it (cards, documents, files, tickets, pull requests), plus
+**further reading**: records found and not cited.
 
 Run it once the work's target paths are known, and skip it entirely when Step 0 resolved
-`fairmind: "none"`.
+`fairmind: "none"`. Confirm `mcp__Fairmind__Brain_ask` is in the tool list, by name: a server
+that predates the platform release serving it does not offer it. Without it, say "the brain
+was not asked: the ask tool is absent" and stop this step.
 
-1. For each directory the task will touch, call `mcp__Fairmind__Brain_context` with
-   `directory: "<module path>"`, `granularity: "file"`, `detail_level: "minimal"`.
-2. Make the call **twice per directory** and never pool the two answers — the same
-   two-pass rule the `brain-rebuild-requirements` skill is built on:
+1. For each file the task changes, at most five, call `mcp__Fairmind__Brain_ask` with
+   `question_type: "file"`, `project` (the bound `project_id`),
+   `subject: {"file": {"repository": <the bound repository_id>, "path": <the file>}}` and a
+   `question` of one line naming the path and the task. A directory is asked as its path ending
+   in `/`. With no bound `repository_id`, send no `file` question and say "files not read — no
+   repository bound". A file past the fifth is named as "not read"; after an answer with
+   `reason: cap_reached`, send no further `Brain_ask` in this run.
+2. Ask once more with `question_type: "contraindications"`, the `question` naming the approach
+   you plan: what the brain holds that speaks against it.
+3. **Cite each consideration with its state.** One whose `confirmed` is false is somebody's
+   unconfirmed draft — a useful lead, and not a precedent — and is cited
+   "(proposed, not yet confirmed)", never bare. An entry of `further_reading` is listed as
+   "found, not cited". A consideration is said to cite knowledge recorded **at a file** only
+   when it comes from a `file` question and one of its `file` references has the bound
+   repository and that path. On any other question a `file` reference carries the catalog's own
+   spelling of the repository: quote its path as a pointer and make no claim about where
+   anything was recorded.
 
-   | pass | `include_proposed` | what it is for |
-   |---|---|---|
-   | evidence | `true` | everything anchored there, drafts included — the widest view |
-   | coverage | `false` | only what a human has confirmed — this is the `uncovered[]` to quote |
+How to read what `Brain_ask` answers, for this skill, which only reads:
 
-3. Open a record with `mcp__Fairmind__Brain_get` only when it is close enough that its body
-   matters, and use `mcp__Fairmind__Brain_expand` for neighbouring chunks rather than
-   re-fetching. When a decision looks like it could forbid the approach, read its history
-   with `mcp__Fairmind__Brain_timeline` before designing around it.
-4. **Report `review_state` with every result, beside `status`.** They are two independent
-   axes: `status` says whether the behaviour is still wanted, `review_state` says whether a
-   person ever agreed with the record. A `proposed` record is somebody's unconfirmed draft —
-   a useful lead, and not a precedent. It never appears without its state attached.
+| Answer | What to do |
+|---|---|
+| `configuration_unset` or `disabled` (with a `key`) | quote the key and stop the brain step |
+| `configuration_invalid` (with a `key`) | quote the key and stop |
+| `retryable: True` (`retrieval_failed`, `catalog_unavailable`) | retry once, then say the brain could not be read — never "nothing is known" |
+| access denied | say this key cannot read the brain |
+| `project_unresolved` | route the person to `/fairmind-connect` |
+| `invalid_parameter` (with a `parameter`) | fix that parameter once and ask again, then name it and stop |
+| `composed: false` | say "listed, not composed", with the `reason`; for `nothing_found`, quote the `coverage` |
+| `throttled` | stop, and never retry |
 
 🔴 **A decision that forbids what the task asks for is a stop-and-ask, not a footnote.**
-Surface it with its node id before implementing, and let the human say whether it still
-applies. Finding it afterwards is the expensive way.
+A consideration that could forbid the approach is surfaced with its card id before
+implementing, and the human says whether it still applies. Finding it afterwards is the
+expensive way.
 
 ### Step 8: Cross-Project Context (if applicable)
 
@@ -193,9 +211,10 @@ Present gathered context in this format:
 - {Document 2}: {summary}
 
 ## What the brain already holds on these paths
-- {path}: {n} items anchored — {kind}/{title} ({status}, {review_state}, node {id})
-- Uncovered (confirmed pass): {files with nothing behind them}
-- ⚠️ Blocking decisions found: {decision, its reason, its node id} — or "none"
+- {path}: {conclusion} ({confirmed | proposed, not yet confirmed}) — references: {title and id of each card, file, document}
+- Found, not cited: {title and id, or none}
+- Coverage: {the answer's coverage sentence | listed, not composed: {reason} | not asked: {why}}
+- ⚠️ Blocking decisions found: {decision, its reason, its card id} — or "none"
 
 ## Integration Points (if cross-project)
 - Target project: {name}

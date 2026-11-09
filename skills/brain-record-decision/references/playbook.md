@@ -1,207 +1,176 @@
 # Playbook — recording a decision, an issue or a replacement
 
-On-demand detail for the `brain-record-decision` skill: the tool surface, the id rules, the
-payload each write door takes, how to read what comes back, and a worked example end to end.
-Read the parts a run actually needs.
+On-demand detail for the `brain-record-decision` skill: the tool surface, what the brain reads
+from a report, the report each kind of record takes, how to read what comes back, and a worked
+example end to end. Read the parts a run actually needs.
 
 ## The tool surface
 
 | Tool | Used for | Used here |
 |---|---|---|
-| `mcp__Fairmind__Brain_search` | text and meaning search across the brain | yes — Step 2, with `include_invalidated: true` |
-| `mcp__Fairmind__Brain_context` | knowledge anchored on a file or a symbol | yes — Step 2, on the files the record is about |
-| `mcp__Fairmind__Brain_get` | one record's body, in chunks | Step 2 — a precedent's full title, to rebuild its id; the whole of an issue about to be updated |
-| `mcp__Fairmind__Brain_timeline` | a record's history: what replaced what, when, and why | when a precedent's history matters |
-| `mcp__Fairmind__Brain_record_decision` | record decisions, as one batch | **yes — a write** |
-| `mcp__Fairmind__Brain_record_issue` | record one issue | **yes — a write** |
-| `mcp__Fairmind__Brain_supersede_decision` | replace one decision with a newer one | **yes — a write** |
-| `mcp__Fairmind__Brain_record_requirement` | record a requirement draft | no — that is `brain-new-requirement` |
-| `mcp__Fairmind__Brain_set_status` | change a record's status | **never** |
+| `mcp__Fairmind__Brain_ask` | what the brain holds on a question, a file or a ticket, as short considerations with their references | yes — Step 2 |
+| `mcp__Fairmind__Brain_tell` | report a decision, an issue or a replacement | **yes — a write** |
+| `mcp__Fairmind__Brain_answer` | the company brain's answer to a design question, with the decision it used | only to take a node id from an answer this session already holds |
 
-🔴 **`mcp__Fairmind__Brain_set_status` is not on this skill's menu**, including for the
-records it just wrote. Confirmation is a human act performed in the review queue.
+No other brain tool is on this skill's menu. A record's status and review state are decided by
+the brain from the report and from who sends it; confirming is a human act performed in the
+review queue.
 
-## Searching for a competing decision
+## Asking for precedents
 
-`mcp__Fairmind__Brain_search` takes `query`, `project`, `kinds`, `status`, `review_state`,
-`include_invalidated`, `date_from`, `date_to`, `time_cutoff` and `k`.
+`mcp__Fairmind__Brain_ask` takes `question` (one to two thousand characters), `question_type`
+(`file`, `precedent`, `contraindications` or `context`), `project` and, for a file,
+`subject: {"file": {"repository": ..., "path": ..., "symbol": ...}}`. A path that ends in `/`
+asks about a directory.
 
-- **`include_invalidated: true`** is what makes the search historical. Without it only
-  current knowledge comes back, and the decision that was already tried and dropped — the
-  one most worth knowing about — stays hidden.
-- **`kinds: "decision"`** for a decision or a replacement, **`kinds: "issue"`** for an issue.
-  `kinds` takes a list as well, when a decision might have been recorded as something else.
-- **`status` takes one value or several.** `status: "superseded"` shows only the replaced
-  decisions; naming `rejected` beside it in the same call brings back both kinds of dropped
-  decision at once.
+- `precedent` — what the brain holds on the idea, in the decision's own words. Ask it the way
+  the decision will be asked about later, not the way it was phrased today: the component's
+  name, the alternative that lost, the failure that prompted it.
+- `contraindications` — what the brain holds against the approach chosen.
+- `file` — what the brain holds on a file, in one line naming the path and the decision.
 
-Search the decision the way it will be asked about later, not the way it was phrased today:
-the component's name, the alternative that lost, the failure that prompted it.
+The answer is `considerations` (each a `text`, whether a person confirmed what it rests on,
+and its `references`), `further_reading` (records found and not cited), `composed`, `coverage`
+and, when nothing could be composed, a `reason`. A reference is a `card`, a `document`, a
+`file` (repository and path), a `ticket`, a `pull_request` or a `commit`. On a `file` question a
+reference to the asked repository comes back spelled as the `repository` the question sent; on
+every other question it carries the catalog's own spelling, so its path is a pointer and
+nothing more.
 
-## Two axes on every result
+A consideration that is not confirmed is somebody's unconfirmed draft — possibly an agent's —
+and is always cited as `{text} (proposed, not yet confirmed)`.
 
-`status` is the decision's lifecycle — does it still hold. `review_state` is whether a
-**person** ever agreed with the record — is it knowledge or somebody's draft. A superseded
-decision can be confirmed knowledge; a current-looking one can be an agent's proposal from
-last week. Carry both, and cite a proposal as `(proposed, not yet confirmed)`.
+## What the brain does with a report
 
-## Ids
+The brain identifies a decision, an issue or a need by its **title**: the same title sent again
+is the same record, so a retry converges; a changed title is a new record. A retell with the
+same content answers `duplicate`; with different content, `conflict`, and nothing is
+overwritten. To change what a recorded decision says, replace it. The brain chooses the kind
+of issue, the links to code and to other records, and the review state; the report carries
+none of them.
 
-**`decisionId` — minted by this skill:**
+Text limits the door enforces and never repairs: a title is one line of at most 256
+characters; a `summary`, a `question`, an option's `rejected_because` and a reason are at most
+1000 characters; at most twelve options, a hundred files, a hundred functions, twenty commit
+ids, and ten related items in all (`tickets`, `pull_requests`, `documents` together). A
+control character or a line break in a one-line field is a refusal.
 
-```
-decisionId = "decision:<project_id>:<slug of the title>"
-```
+## Reports
 
-- `<project_id>` is the value in `.fairmind/active-context.json`. It keeps two projects'
-  decisions of the same title apart: the platform treats `decisionId` as unique across the
-  whole company, not per repository.
-- `<slug of the title>` is the exact title sent, lowercased, every run of non-alphanumerics
-  folded to one `-`, trimmed of `-` at both ends. It stays under 80 characters by shortening
-  the title itself before it is recorded, never by cutting the slug: the recorded title must
-  slugify to its own id, or a later run cannot rebuild the id from it.
-- Never begin it `sha256:` — that shape belongs to the decision log the loop flushes, and a
-  collision with it would drop one of the two.
-- A replacement takes a new id. If its slug matches its predecessor's, add `-2`, `-3`, the
-  first suffix no decision of that title already holds — the precedent search, run with
-  `include_invalidated: true`, lists every one of them, current or not. An id that is
-  already held is not written, and the supersession still ends the old decision.
-
-**For a decision already in the brain, the card's `natural_key` is its `decisionId`.** That is
-the value `old_decision_id` and `relates.caused_by` take. Only a company-brain answer
-(`Brain_answer`'s `decision_id`) publishes it: a search result, a context bundle and a
-`mcp__Fairmind__Brain_get` card carry the `node_id`. Nor does a
-read say who first recorded a card: `provenance.agent`, and a timeline event's `by`, name the
-**last** writer — a status change carries the subject of whoever made it, and a later write by
-another agent replaces the name. The id is therefore taken from what this skill controls: the
-`decisionId` its own report printed when it recorded the decision, one the person supplies, or
-one rebuilt with the rule above from the full title `mcp__Fairmind__Brain_get` returns (a search
-title is cut short) — rebuilt only on the person's word that this skill recorded it, and shown
-to them before it is sent. Any other decision — a loop's `sha256:` id included — can only be
-named with an id the person supplies.
-
-**`natural_key` for an issue — authored by this skill:**
-
-```
-natural_key = "<module-or-area>:<slug of the title>"
-```
-
-The platform stores it as `agent:<slug>` and derives the node from that, so the same key sent
-twice updates one issue. Choose the module-or-area prefix from the names the brain already
-uses for that part of the code, and do not rename it between runs: a renamed prefix is a
-second issue.
-
-**An update is a replacement, not an append.** The second call's title, body, anchors,
-evidence and `relates` become the stored issue, whole; what the first call carried and the
-second does not is gone, and no history keeps it. `mcp__Fairmind__Brain_get` gives back the
-title, the body and the anchors; the evidence and the `relates` are returned by no read door,
-so the person supplies them again or drops them knowingly. An issue is updated from this skill
-only under a key it minted — printed by the report of the run that filed it, or supplied or
-confirmed by the person. The card cannot say whose it is: `provenance.agent` names its last
-writer, and every agent's issue keys share the `agent:` namespace, so a key is the only thing
-that keeps a write off another producer's issue.
-
-## Payloads
-
-**`mcp__Fairmind__Brain_record_decision`** — one call per run:
+**A decision** — `intent: "decision"`:
 
 ```json
 {
-  "repository": "<repository_id, or the repository's name>",
-  "project": "<project_id>",
-  "contract_version": "fm-insights.decision/2",
-  "decisions": [
-    {
-      "decisionId": "decision:<project_id>:retry-payment-webhooks-with-exponential-backoff-and-jitter",
-      "ts": "2026-01-15T10:42:00Z",
-      "agent": "brain-record-decision",
-      "kind": "architecture",
-      "origin": "taken",
-      "question": "How should failed payment webhooks be retried?",
-      "decided_by": "human",
-      "title": "Retry payment webhooks with exponential backoff and jitter",
-      "rationale": "The provider rate-limits bursts; a fixed delay re-synchronised retries after an outage and tripped the limit again.",
-      "options": [
-        {"title": "Fixed 30-second delay", "rejected_because": "retries from every tenant land together after an outage"},
-        {"title": "Queue with a dead-letter only", "rejected_because": "a transient failure would need a person to replay it"}
-      ],
-      "consequences": "A webhook can arrive up to 20 minutes late; consumers must stay idempotent on the event id.",
-      "files": ["app/webhooks/payments.py"],
-      "functions": [{"file_path": "app/webhooks/payments.py", "name": "deliver_webhook"}],
-      "requirement_refs": ["<node id of the requirement it serves>"],
-      "document_refs": ["<node id of the document it rests on>"]
-    }
-  ]
-}
-```
-
-Leave out any field you have nothing true to put in. `start_line` may join a `functions` entry
-when you have read the line — a wrong line links nothing, so do not guess one. `valid_at` may
-be set when the person says the decision was taken earlier than today; otherwise it is `ts`.
-`question` is the question the decision answers, sent only when it answers one asked in the
-session; `decided_by` is `human` or `agent`, as the writer declares it, and confirms nothing.
-Do not send `review_state`, `status_history` or `actor_kind`: the platform sets them from who
-is calling, and a row cannot declare its own approval. `origin` is the one field that says where
-the decision was recorded, not who approved it: `taken` means it was taken where it is recorded,
-and the platform then records it with status `taken` and review state `confirmed`. Send `taken`
-on every row, and no status beside it.
-
-**`mcp__Fairmind__Brain_record_issue`** — one call per issue:
-
-```json
-{
-  "project": "<project_id>",
-  "issue_kind": "bug",
-  "title": "Webhook retries ignore the provider's Retry-After header",
-  "body": "Found while choosing the backoff: deliver_webhook computes its own delay even when the 429 response names one.",
-  "natural_key": "payments-webhooks:webhook-retries-ignore-the-provider-s-retry-after-header",
-  "anchors": [
-    {"repo_ref": "<repository_id>", "repo_ref_scheme": "code-ingestion",
-     "file_path": "app/webhooks/payments.py", "symbol_name": "deliver_webhook",
-     "symbol_type": "FUNCTION"}
+  "intent": "decision",
+  "repository": "payments-service",
+  "project": "6a8c08657fdafcc39df4e48c",
+  "origin": "taken",
+  "decided_by": "human",
+  "title": "Retry payment webhooks with exponential backoff and jitter",
+  "summary": "The provider rate-limits bursts; a fixed delay re-synchronised retries after an outage and tripped the limit again. A webhook can now arrive up to 20 minutes late, so consumers must stay idempotent on the event id.",
+  "question": "How should failed payment webhooks be retried?",
+  "options": [
+    {"title": "Exponential backoff with jitter", "chosen": true},
+    {"title": "Fixed 30-second delay", "chosen": false, "rejected_because": "retries from every tenant land together after an outage"},
+    {"title": "Queue with a dead-letter only", "chosen": false, "rejected_because": "a transient failure would need a person to replay it"}
   ],
-  "evidence": [{"kind": "quote", "text": "delay = base * 2 ** attempt", "source": "app/webhooks/payments.py"}],
-  "relates": {"caused_by": ["decision:<project_id>:retry-payment-webhooks-with-exponential-backoff-and-jitter"]},
+  "files": ["app/webhooks/payments.py"],
+  "functions": ["app/webhooks/payments.py::deliver_webhook"],
+  "documents": [
+    {"url": "https://example.com/docs/webhook-delivery-design", "title": "Webhook delivery design", "summary": "The design note the retry policy rests on."}
+  ],
+  "session_ref": "0b0e8d3c-1b6f-4d54-9a39-5f2f4b7d8c11",
   "agent": "brain-record-decision"
 }
 ```
 
-`relates` also takes `duplicates` and `resolves`, and those two carry **node ids**, not
-decision ids — the three are read in different id spaces on purpose.
+Leave out any field you have nothing true to put in. `gate_approved: true` is added only when
+the person approved an agent's choice at Step 4; the brain stores it as a record that a person
+approved and does not need it to confirm a decision taken here. `task_ref` (the ticket the
+decision belongs to) and `task_ref_status` (`done`, `in_progress`, `implemented` or `verified`)
+are added only with the person's own words in this conversation. Do not send `status`,
+`review_state`, a category, an id or an anchor: the brain sets them, and a report that carries
+`status` or `state` at any depth is refused.
 
-**`mcp__Fairmind__Brain_supersede_decision`** — one call per replacement:
+**An issue** — `intent: "problem"`:
 
 ```json
 {
-  "old_decision_id": "decision:<project_id>:retry-payment-webhooks-with-a-fixed-delay",
-  "reason": "The fixed delay re-synchronised retries after the March outage and tripped the provider's rate limit again.",
-  "new_decision": { "...": "a full decision row, as above" },
-  "repository": "<repository_id, or the repository's name>",
-  "project": "<project_id>"
+  "intent": "problem",
+  "repository": "payments-service",
+  "project": "6a8c08657fdafcc39df4e48c",
+  "title": "Webhook retries ignore the provider's Retry-After header",
+  "summary": "Found while choosing the backoff: deliver_webhook computes its own delay even when the 429 response names one.",
+  "files": ["app/webhooks/payments.py"],
+  "functions": ["app/webhooks/payments.py::deliver_webhook"],
+  "session_ref": "0b0e8d3c-1b6f-4d54-9a39-5f2f4b7d8c11",
+  "agent": "brain-record-decision"
 }
 ```
 
-`new_decision_id` replaces `new_decision` when the replacement is already recorded; pass
-exactly one of the two.
+**A replacement** — a decision report with `replaces`:
+
+```json
+{
+  "intent": "decision",
+  "repository": "payments-service",
+  "project": "6a8c08657fdafcc39df4e48c",
+  "origin": "taken",
+  "decided_by": "human",
+  "title": "Retry payment webhooks with exponential backoff and jitter",
+  "summary": "The provider rate-limits bursts; a fixed delay re-synchronised retries after an outage and tripped the limit again.",
+  "replaces": {
+    "node_id": "0123456789abcdef0123456789abcdef",
+    "reason": "The fixed delay re-synchronised retries after the March outage and tripped the provider's rate limit again."
+  },
+  "session_ref": "0b0e8d3c-1b6f-4d54-9a39-5f2f4b7d8c11",
+  "agent": "brain-record-decision"
+}
+```
+
+`node_id` is the 32-character id of the decision being replaced, taken from a `card` reference
+of a `Brain_ask` answer, from a company-brain answer of this session, or from the person. A
+guessed id is refused, or replaces nothing.
+
+**A change to a record this skill filed in this run** — the report again, in full, with
+`revises` set to that record's `node_id`:
+
+```json
+{
+  "intent": "problem",
+  "repository": "payments-service",
+  "project": "6a8c08657fdafcc39df4e48c",
+  "title": "Webhook retries ignore the provider's Retry-After header",
+  "summary": "deliver_webhook computes its own delay even when the 429 response names one. Seen on the March outage too.",
+  "revises": "0123456789abcdef0123456789abcdef",
+  "session_ref": "0b0e8d3c-1b6f-4d54-9a39-5f2f4b7d8c11",
+  "agent": "brain-record-decision"
+}
+```
+
+A revision replaces the stored record whole, so the report carries everything that should
+stay, not the addition alone. A decision this skill filed is taken, so it lands confirmed and
+is never revised: a `revises` of it is refused with `revise_not_allowed`, and its change is a
+replacement (above).
 
 ## Reading the responses
 
-| Door | Answer | What it means |
-|---|---|---|
-| record decision | `inserted: 1` | recorded as taken (status `taken`, review state `confirmed`) |
-| record decision | `node_ids` | `{decisionId: node_id}` for every row sent, duplicates included — name the node id in the report |
-| record decision | `duplicates: 1` and a warning naming the id | already recorded — **nothing changed**; to change it, supersede it |
-| record decision | an `edges` entry marked `target_missing` | a `requirement_refs` or `document_refs` id the brain could not find |
-| record issue | `{'status': 'ok', 'knowledge_id': ...}` | recorded — or, for a key already used, the stored issue **replaced** by this call's title, body, anchors, evidence and `relates` |
-| record issue | `possible_duplicates: [{knowledge_id, score, threshold}]` | records that read like this one — list them in the report |
-| record issue | `detection.duplicates.status: disabled` (also `embedding.duplicate_detection.status: disabled`) | the duplicate check is switched off for the tenant — report "not checked — duplicate detection is off", never "none" |
-| record issue | `detection` with no `duplicates` entry, or a duplicates status other than `complete` or `replayed` | the check did not finish — "not checked", with the status or reason |
-| record issue | `{'status': 'revision_proposed', ...}` | the key belongs to an issue a person confirmed; a proposal was filed instead |
-| supersede | `{'status': 'ok', 'superseded': ..., 'superseded_by': ..., 'decisions': {...}}` with `inserted: 1` inside `decisions` | the replacement is recorded as taken; the old decision is invalidated, not removed, and stays readable in its history |
-| supersede | `duplicates: 1` inside `decisions` | the replacement was **not** written — a decision with its id already existed — and the old decision was invalidated all the same, by that earlier row |
-| supersede | a warning inside `decisions` saying the old decision could not be superseded | the replacement is recorded and the old decision **is still current** — its id matched nothing, or it belongs to a project the caller may not write to |
-| any | `{'status': 'throttled', ...}` | the daily quota is spent — stop |
-| any | `{'retryable': True}` | not written now; one retry at most |
+| Answer | What it means |
+|---|---|
+| `state: confirmed` | recorded and confirmed: a decision taken here |
+| `state: proposed` | recorded, and waiting for a person in the review queue (an issue; a replacement an agent made) |
+| `state: duplicate` | already recorded — **nothing changed**; to change it, replace it |
+| `state: conflict` (with a `node_id`) | a record under this title says something different; nothing was overwritten; after the person's yes, revise it with that `node_id` — or replace it, when the `message` offers only `replaces` |
+| `replaces_outcome: superseded` | the old decision is no longer current |
+| `replaces_outcome: proposed` | a proposal for a person to confirm was filed; the old decision is **still current** |
+| `replaces_outcome: kept` | the old decision could not be ended (a person rejected it, a successor already replaced it, or this key has no role on its project); no proposal was filed |
+| `replaces_outcome: not_replaced` | the report named no replacement that applied |
+| `related[]` | one entry per related document: `created`, `updated`, `unchanged` or `proposed` is linked; `unavailable`, `retry` and `over_cap` are not |
+| `{'status': 'refused', 'reason': 'revise_not_allowed', ...}` | the decision named in `revises` is not revised: the change is a replacement |
+| `{'status': 'refused', 'reason': ..., 'message': ...}` | words the brain did not accept (or, for a shape reason, a disagreement with the plugin) — Step 5 |
+| `{'status': 'throttled', ...}` | the daily quota is spent — stop |
+| `{'retryable': True}` | not written now; one retry at most |
+| access denied | this key may not write to the project |
 
 ## A worked example
 
@@ -209,33 +178,30 @@ The person, after a long thread about webhook delivery: *"Record in the brain th
 with exponential backoff and jitter — and file the Retry-After thing as a bug, we're not fixing
 it today."*
 
-1. **Preconditions.** `active-context.json` names the project and a bound repository; the five
+1. **Preconditions.** `active-context.json` names the project and a bound repository; both
    tools are present.
 2. **Route.** One decision, one issue. Neither is a requirement or a document.
-3. **Precedents.** A search for "webhook retry" with `kinds: "decision"` and
-   `include_invalidated: true` returns *"Retry payment webhooks with a fixed delay"*, status
-   `taken`, review state `confirmed`. That is a different current decision on the same
-   ground, so the skill asks: *does the new one replace it, and why?* The person: yes — the
-   fixed delay tripped the rate limit after the March outage. This is now a **supersession**,
-   and it needs the old decision's id. The person says this skill recorded it, so the id is
-   rebuilt from the full title `mcp__Fairmind__Brain_get` returns and shown to them before it
-   is sent: `decision:<project_id>:retry-payment-webhooks-with-a-fixed-delay`. The card's
-   `provenance.agent` is not the evidence — it names the last writer, not the first.
-4. **Draft.** The replacement row as above; the issue with `caused_by` pointing at the new
-   decision's id.
-5. **Ask.** Two records, their titles, the rationale, the file and function, the repository
+3. **Precedents.** A `precedent` question in the decision's words returns a consideration
+   saying the retries use a fixed 30-second delay, confirmed, with a `card` reference. That is a
+   different decision on the same ground, so the skill asks: *does the new one replace it, and
+   why?* The person: yes — the fixed delay tripped the rate limit after the March outage. This is
+   now a **replacement**, and the old decision's id is the card reference's `id`, shown to the
+   person before it is sent.
+4. **Draft.** The replacement report as above; the issue.
+5. **Ask.** Two records, their titles, the description, the file and function, the repository
    and project, and the reason for the replacement. The person says yes.
-6. **Write.** One `mcp__Fairmind__Brain_supersede_decision` carrying the new row, then one
-   `mcp__Fairmind__Brain_record_issue`, whose answer carries an empty `possible_duplicates`
-   and `detection.duplicates.status: complete` — the check ran and found nothing.
+6. **Write.** One `Brain_tell` for the replacement: `state: confirmed`, `replaces_outcome:
+   superseded`. One for the issue: `state: proposed`.
 7. **Report.**
 
 ```markdown
 **Decisions: taken — recorded where it was taken.**
 **Issues: proposed — awaiting human review.** No issue below is confirmed knowledge.
 
-- supersession · Retry payment webhooks with a fixed delay (`decision:<project_id>:retry-payment-webhooks-with-a-fixed-delay`) → Retry payment webhooks with exponential backoff and jitter (`decision:<project_id>:retry-payment-webhooks-with-exponential-backoff-and-jitter`) · taken · reason: "The fixed delay re-synchronised retries after the March outage and tripped the provider's rate limit again."
-- issue · Webhook retries ignore the provider's Retry-After header · <project> · proposed · key `payments-webhooks:webhook-retries-ignore-the-provider-s-retry-after-header` · possible duplicates: none
+- replacement · Retry payment webhooks with a fixed delay (`0123456789abcdef0123456789abcdef`) → Retry payment webhooks with exponential backoff and jitter (`fedcba9876543210fedcba9876543210`) · confirmed · superseded · reason: "The fixed delay re-synchronised retries after the March outage and tripped the provider's rate limit again."
+- issue · Webhook retries ignore the provider's Retry-After header · 6a8c08657fdafcc39df4e48c · proposed · node `00112233445566778899aabbccddeeff`
+
+Precedents: the retry delay is fixed at 30 seconds (confirmed).
 
 Confirm or reject each issue in the review queue — this skill confirms nothing.
 ```

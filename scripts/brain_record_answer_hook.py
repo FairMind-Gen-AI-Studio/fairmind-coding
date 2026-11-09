@@ -1,45 +1,54 @@
 #!/usr/bin/env python3
-"""PostToolUse hook on `AskUserQuestion`: record a person's answer to a design
-question as a decision in the company brain, and turn an overrule of a brain
+"""PostToolUse hook on `AskUserQuestion`: tell the company brain a person's
+answer to a design question as a decision, and turn an overrule of a brain
 answer into the replacement of that decision.
 
-When the person picks one of the options the agent offered, this hook sends the
-question, the offered option LABELS (never their descriptions) and the chosen
-label to the brain's `Brain_record_decision`, as a taken decision under the
-person's own key. Only a design choice counts: a question about the session
-itself ("continue?", "which file?") is never sent, and neither is a typed answer
-to an ordinary question.
+When the person picks one of the options the agent offered, this hook sends one
+`Brain_tell` report per answered question: the question, the offered option
+LABELS (never their descriptions) and the chosen label, as a taken decision
+under the person's own key. Only a design choice counts: a question about the
+session itself ("continue?", "which file?") is never sent, and neither is a
+typed answer to an ordinary question.
 
 OVERRULES. The answer hook (`brain_answer_hook`) remembers, per session, every
 question a confirmed decision answered. When one of those questions is asked
-again and the person picks something else, the pick is sent to
-`Brain_supersede_decision` as the replacement of that decision, with the reason
-`overruled`, and not also as a plain decision (two successors would leave two
-live answers). The decision is kept, readable and marked superseded. A pick that
-equals the brain's own choice records nothing. In `suggest` mode the person
+again and the person picks something else, the pick is sent as the new decision
+with `replaces` naming the earlier one and the reason `overruled`, and not also
+as a plain decision (two successors would leave two live answers). The brain
+answers what became of the earlier decision (`replaces_outcome`) and the hook
+says exactly that: replaced, filed as a proposal, kept, or not replaced. A pick
+that equals the brain's own choice records nothing. In `suggest` mode the person
 saw a suggestion rather than an answer, so a different pick is not replaced on
 the spot: the hook dictates a yes/no confirmation question to the agent and
 sends the replacement only on the person's yes (the question is session-shaped,
-so neither hook sends or records it).
+so neither hook sends or records it). Of two hooks that read the same
+confirmation, only the one whose removal of it succeeded sends.
 
 WHAT LEAVES THE MACHINE. The question, the offered option labels and the chosen
-label, and repo-relative changed file paths. A typed ("Other") answer is the
-person's own words and is skipped whole EXCEPT when it answers a question the
-brain answered earlier in the session: then, and only then, it is the title of
-the replacement decision (capped at 256 characters), because the typed words
-are the new decision. Option descriptions, notes and annotations are not read at
-all.
+label; the question text may name a file, but no file of the checkout is
+attached. A design question is answered before the code it decides is written,
+so no file of the checkout is evidence of the decision, and anchoring it to the
+dirty working tree would make the brain cite it as the reason for files it has
+nothing to do with. The title is the question and the pick joined (the brain
+keys a decision on its title). A typed ("Other") answer is the person's own
+words and is skipped whole EXCEPT when it answers a question the brain answered
+earlier in the session: then, and only then, it is the pick of the replacement
+decision (cut at 256 characters), because the typed words are the new decision.
+Option descriptions, notes and annotations are not read at all.
 
 THE FAIL DIRECTION IS A LINE, NOT A BLOCK. Any failure after the answer was
 classified as a design decision ends with one status line per question saying it
-was not recorded, and exit 0; before that point it ends silent. The hook never
-asks for or changes a permission and never alters the tool result. A replacement
-the brain refused, or could not make, says so: the old decision stays in force.
+was not recorded (or not confirmed, when the brain did not answer), and exit 0;
+before that point it ends silent. The hook never asks for or changes a
+permission and never alters the tool result. A replacement the brain refused, or
+could not make, says so: the old decision stays in force. A send that gets no
+answer ends the run: the remaining answers are not tried, so a stalled brain
+holds the hook for one send, not for one per question.
 
 TIME. The harness kills a hook at its registered timeout and a killed hook says
 nothing, so the whole run is held under `HOOK_BUDGET_S`: every git call carries a
-timeout capped by the time left, and every send deadline is capped at the hook's
-own start plus that budget.
+timeout capped by the time left, every send deadline is capped at the hook's own
+start plus that budget, and an answer that finds the budget spent is not sent.
 
 The `brain` switch governs it, exactly as it governs the loop's brain write-back;
 with it off an overrule is not sent and a line says the earlier decision stays in
@@ -48,14 +57,12 @@ force. Stdlib plus small leaf modules.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import signal
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
@@ -66,6 +73,7 @@ import _binding  # noqa: E402
 import _design_question  # noqa: E402
 import _hook_line  # noqa: E402
 import _mcp_config  # noqa: E402
+import _tell_report  # noqa: E402
 import audit_run_meta  # noqa: E402
 
 #: The send alone, from the moment it starts.
@@ -74,17 +82,14 @@ SEND_BUDGET_S = 5.0
 HOOK_BUDGET_S = 8.0
 #: One local git call.
 GIT_TIMEOUT_S = 1.0
-MAX_FILES = 20
-CONTRACT_VERSION = "fm-insights.decision/2"
 AGENT = "ask-user-question"
-KIND = "other"
 RATIONALE = "Chosen by the person in answer to a design question in the session."
 DECIDED_BY = "human"
 ORIGIN = "taken"
 
 _QUESTION_TEXT_LIMIT = 40
-#: The brain caps a decision title at this many characters; a longer typed answer
-#: is cut here rather than sent whole.
+#: A longer typed answer is cut to this many characters before it joins the
+#: question in the title.
 TITLE_MAX = 256
 REASON = "overruled"
 
@@ -96,10 +101,10 @@ REASON = "overruled"
 # the timeout: killing only `git` leaves a grandchild holding the pipe open.
 # --------------------------------------------------------------------------- #
 
-def _git_bytes(repo, args, start):
-    """stdout of `git -C repo <args>` as bytes, or None on a non-zero exit, an
-    OS error or a timeout. The timeout is `GIT_TIMEOUT_S` capped by what is left
-    of the hook budget counted from `start`."""
+def _git(repo, args, start):
+    """Stripped stdout of `git -C repo <args>`, or None when it is empty, on a
+    non-zero exit, an OS error or a timeout. The timeout is `GIT_TIMEOUT_S`
+    capped by what is left of the hook budget counted from `start`."""
     timeout = min(GIT_TIMEOUT_S, start + HOOK_BUDGET_S - time.monotonic())
     if timeout <= 0:
         return None
@@ -122,41 +127,9 @@ def _git_bytes(repo, args, start):
         return None
     except Exception:  # noqa: BLE001
         return None
-    return out if proc.returncode == 0 else None
-
-
-def _git(repo, args, start):
-    out = _git_bytes(repo, args, start)
-    if out is None:
+    if proc.returncode != 0:
         return None
-    text = out.decode("utf-8", "replace").strip()
-    return text or None
-
-
-def changed_files(toplevel, start):
-    """Repo-relative paths changed since HEAD or untracked, sorted and capped.
-
-    `-z` keeps git from octal-quoting a non-ASCII path. A path that is not UTF-8
-    is dropped, and so is anything under `.fairmind/`, which is the plugin's own
-    working directory. A repository with no HEAD contributes only its untracked
-    half."""
-    found = set()
-    for args in (("diff", "--name-only", "-z", "HEAD"),
-                 ("ls-files", "--others", "--exclude-standard", "-z")):
-        raw = _git_bytes(toplevel, args, start)
-        if not raw:
-            continue
-        for chunk in raw.split(b"\0"):
-            if not chunk:
-                continue
-            try:
-                path = chunk.decode("utf-8")
-            except UnicodeDecodeError:
-                continue
-            if path == ".fairmind" or path.startswith(".fairmind/"):
-                continue
-            found.add(path)
-    return sorted(found)[:MAX_FILES]
+    return out.decode("utf-8", "replace").strip() or None
 
 
 # --------------------------------------------------------------------------- #
@@ -256,66 +229,58 @@ def typed_answers(tool_input, tool_response):
 
 
 # --------------------------------------------------------------------------- #
-# Row and batch.
+# The report.
 # --------------------------------------------------------------------------- #
 
-def build_row(entry, *, project, session_id, tool_use_id, ts, files):
-    """One `fm-insights.decision/2` row for a kept question.
+def build_report(entry, *, repository, project, git_remote, session_id):
+    """The `Brain_tell` report for a kept question, or None when no title the
+    brain could key can be made of the question and the pick.
 
-    The id is a function of the session, the tool call and the question, so the
-    same exchange recorded twice is one decision. The title is the chosen label,
-    which is always an offered one."""
-    scope = project if _binding.is_object_id(project) else "unscoped"
-    digest = hashlib.sha256(
-        f"{session_id or ''}\n{tool_use_id or ''}\n{entry['question']}".encode("utf-8")
-    ).hexdigest()[:16]
+    The title is the question and the pick, so the same exchange told twice is
+    one decision (the brain answers the second `duplicate`) and a question asked
+    again with another pick is another. `files` and `functions` are never set
+    (see WHAT LEAVES THE MACHINE). Nothing here says who acted: the brain stamps
+    that from the key."""
+    title = _tell_report.fit_pair(entry["question"], " \u2192 ", entry["answer"],
+                                  slug_max=_tell_report.KEY_SLUG_MAX)
+    if title is None:
+        return None
     chosen = set(entry["chosen"])
-    return {
-        "decisionId": f"decision:{scope}:answer-{digest}",
-        "ts": ts,
-        "agent": AGENT,
-        "kind": KIND,
-        "title": entry["answer"],
-        "rationale": RATIONALE,
-        "question": entry["question"],
-        "options": [{"title": label, "rejected_because": "", "chosen": label in chosen}
-                    for label in entry["options"]],
+    options = []
+    for label in entry["options"]:
+        folded = _tell_report.fit_text(_tell_report.one_line(label), _tell_report.TITLE_MAX)
+        if folded:
+            options.append({"title": folded, "chosen": label in chosen})
+    report = {"intent": "decision",
+              "repository": _tell_report.fit_ref(repository) or repository}
+    if _binding.is_object_id(project):
+        report["project"] = project
+    if git_remote:
+        report["git_remote"] = git_remote
+    report.update({
+        "title": title,
+        "summary": RATIONALE,
+        "question": _tell_report.fit_text(entry["question"], _tell_report.TEXT_MAX),
+        "options": options,
         "decided_by": DECIDED_BY,
         "origin": ORIGIN,
-        "files": list(files),
-        "functions": [],
-    }
+        "agent": AGENT,
+    })
+    ref = _tell_report.fit_ref(session_id) if _binding.nonblank(session_id) else None
+    if ref:
+        report["session_ref"] = ref
+    return report
 
 
-def build_batch(rows, *, repository, project, git_remote, session_id):
-    batch = {"repository": repository}
-    if _binding.is_object_id(project):
-        batch["project"] = project
-    if git_remote:
-        batch["git_remote"] = git_remote
-    if _binding.nonblank(session_id):
-        batch["session_ref"] = session_id
-    batch["contract_version"] = CONTRACT_VERSION
-    batch["decisions"] = rows
-    return batch
-
-
-def build_supersede(row, old_decision_id, *, repository, project, git_remote, session_id):
-    """The `Brain_supersede_decision` arguments that replace `old_decision_id`
-    with `row`, because the person overruled it.
-
-    The reason is the fixed word `overruled` (the brain's read side keys on it),
-    the replacement is the same row a plain answer would have been, and nothing
-    here says who acted: the brain stamps that from the key."""
-    args = {"old_decision_id": old_decision_id, "reason": REASON, "new_decision": row,
-            "repository": repository}
-    if _binding.is_object_id(project):
-        args["project"] = project
-    if _binding.nonblank(session_id):
-        args["session_ref"] = session_id
-    if git_remote:
-        args["git_remote"] = git_remote
-    return args
+def build_replacement(entry, old_node, *, repository, project, git_remote, session_id):
+    """The report that replaces the decision `old_node` with `entry`, because
+    the person overruled it, or None as `build_report`. The reason is the fixed
+    word `overruled` (the brain's read side keys on it)."""
+    report = build_report(entry, repository=repository, project=project,
+                          git_remote=git_remote, session_id=session_id)
+    if report is not None:
+        report["replaces"] = {"node_id": old_node, "reason": REASON}
+    return report
 
 
 def send_deadline(start, now):
@@ -328,44 +293,86 @@ def send_deadline(start, now):
 # Output.
 # --------------------------------------------------------------------------- #
 
-def _is_success(reply):
-    return (isinstance(reply, dict) and "message" not in reply
-            and ("inserted" in reply or "duplicates" in reply))
+_PLAIN_CLAUSES = {
+    "conflict": "was not recorded \u2014 another decision has that title",
+    "retry": "was not recorded \u2014 the brain could not finish recording it",
+    "throttled": "was not recorded \u2014 today's write budget is spent",
+    "not_accepted": "was not recorded \u2014 the brain did not accept the call",
+    "refused": "was not recorded \u2014 the brain refused it",
+    "unreachable": "was not confirmed \u2014 the brain did not answer",
+    "untimed": "was not recorded \u2014 the hook ran out of time",
+    "untitled": "was not recorded \u2014 it has no title the brain can use",
+    "failed": "was not recorded \u2014 the hook failed",
+}
 
 
-def render(rows, reply, server_key, *, refused=False):
-    """The hook output for a send that succeeded (`reply` is the brain's answer)
-    or failed (`reply` is None; `refused` says the brain answered with a refusal
-    rather than not answering).
+def plain_outcome(reply):
+    """The outcome of a plain decision's answer: `written`, `duplicate`,
+    `conflict`, `retry`, `throttled`, `not_accepted` (the plugin and the brain
+    disagree on the report's shape) or `refused` (everything else, an answer of
+    no known shape included, which must never read as a recorded one)."""
+    outcome = _tell_report.tell_outcome(reply)
+    if outcome == "written":
+        return "written"
+    if outcome in ("duplicate", "conflict", "retry", "throttled"):
+        return outcome
+    if outcome == "mismatch":
+        return "not_accepted"
+    return "refused"
 
-    Success: one status line per question for the person, and the instruction for
-    retiring a decision for the model. Failure: status lines only, because
-    nothing was recorded for the model to act on."""
-    if reply is None:
-        reason = "refused it" if refused else "could not be reached"
-        lines = [_hook_line.line(
-            "Brain", f'your answer to "{_hook_line.clip(r["question"], _QUESTION_TEXT_LIMIT)}" '
-                     f"was not recorded — the brain {reason}") for r in rows]
+
+def _node_of(reply):
+    node = reply.get("node_id") if isinstance(reply, dict) else None
+    return node if _binding.nonblank(node) else None
+
+
+def _plain_line(question, outcome, node=None):
+    short = _hook_line.clip(question, _QUESTION_TEXT_LIMIT)
+    suffix = f" ({node})" if node else ""
+    if outcome == "written":
+        return _hook_line.line("Brain", f'recorded your answer to "{short}" as a decision{suffix}')
+    if outcome == "duplicate":
+        return _hook_line.line("Brain", f'your answer to "{short}" was already recorded{suffix}')
+    return _hook_line.line("Brain", f'your answer to "{short}" {_PLAIN_CLAUSES[outcome]}')
+
+
+def render(results, server_key, repository):
+    """The hook output for the plain answers. `results` is
+    `[(entry, outcome, node)]` in the order they were told.
+
+    One status line per question for the person. For the model, the answers the
+    brain holds (recorded now, or already there) and the instruction for
+    retracting one; a failure adds nothing for the model to act on."""
+    lines = [_plain_line(entry["question"], outcome, node) for entry, outcome, node in results]
+    recorded = [(entry, node) for entry, outcome, node in results if outcome == "written"]
+    held = [(entry, node) for entry, outcome, node in results if outcome == "duplicate"]
+    if not (recorded or held):
         return _hook_line.payload("PostToolUse", user="\n".join(lines))
-    node_ids = reply.get("node_ids")
-    node_ids = node_ids if isinstance(node_ids, dict) else {}
-    lines, items = [], []
-    for row in rows:
-        node = node_ids.get(row["decisionId"])
-        node = node if _binding.nonblank(node) else None
-        short = _hook_line.clip(row["question"], _QUESTION_TEXT_LIMIT)
-        suffix = f" ({node})" if node else ""
-        lines.append(_hook_line.line("Brain", f'recorded your answer to "{short}" as a decision{suffix}'))
-        where = f"(node {node})" if node else "(node id not returned by the brain)"
-        items.append(f'- "{row["question"]}" → "{row["title"]}" {where}')
-    text = ("Fairmind company brain: the person's answers to these design questions were "
-            "recorded as taken decisions:\n" + "\n".join(items) + "\n"
-            "If the person says one of them was not a design decision, retire it at once: "
-            f"call mcp__{server_key}__Brain_set_status with knowledge_id set to that node, "
-            'status "rejected", and reason set to the person\'s own words.')
+    text = ""
+    if recorded:
+        items = []
+        for entry, node in recorded:
+            where = f"(node {node})" if node else "(node id not returned by the brain)"
+            items.append(f'- "{entry["question"]}" \u2192 "{entry["answer"]}" {where}')
+        text = ("Fairmind company brain: the person's answers to these design questions were "
+                "recorded as taken decisions:\n" + "\n".join(items) + "\n")
+    if held:
+        items = [f'- "{entry["question"]}" \u2192 "{entry["answer"]}"'
+                 + (f" (node {node})" if node else "") for entry, node in held]
+        text += ("Fairmind company brain: the brain already held the person's answers to these "
+                 "design questions; a decision that has been replaced or retracted since stays so:\n"
+                 + "\n".join(items) + "\n")
+    text += ("If the person says one of them was not a design decision, retract it at once: call "
+             f'mcp__{server_key}__Brain_tell with intent "decision", repository "{repository}", and '
+             "retract set to an object holding node_id (that node) and reason (the person's own words).")
     return _hook_line.payload("PostToolUse", user="\n".join(lines), model=text)
 
 
+def render_failed(entries):
+    """Status lines for answers the hook failed to tell, and nothing for the model."""
+    lines = [_hook_line.line("Brain", f'your answer to "{_hook_line.clip(e["question"], _QUESTION_TEXT_LIMIT)}" '
+                                      f'{_PLAIN_CLAUSES["failed"]}') for e in entries]
+    return _hook_line.payload("PostToolUse", user="\n".join(lines))
 
 
 # --------------------------------------------------------------------------- #
@@ -373,7 +380,7 @@ def render(rows, reply, server_key, *, refused=False):
 # --------------------------------------------------------------------------- #
 
 PLAIN, MATCH, SUPERSEDE, CONFIRM, SKIP = "plain", "match", "supersede", "confirm", "skip"
-OUTCOME_OK, OUTCOME_KEPT, OUTCOME_REFUSED = "ok", "kept", "refused"
+OUTCOME_OK = "ok"
 _PICK_TEXT_LIMIT = 60
 _CONFIRM_QUESTION_LIMIT = 80
 
@@ -418,61 +425,101 @@ def confirmation_text(entry):
             f'brain\'s decision for "{question}"?')
 
 
-def supersede_outcome(reply, old_decision_id):
-    """`(outcome, detail)` for the reply to a supersession.
+def replace_outcome(reply):
+    """`(outcome, detail)` for the answer to a replacing report.
 
-    `ok`: the successor was recorded and the old decision retired. `kept`: the
-    successor landed but a warning names the old decision, which stays in force
-    (a company-wide decision, another project, a person's rejection; `detail` is
-    the warning). `refused`: anything else."""
-    if (not isinstance(reply, dict) or "message" in reply
-            or reply.get("status") != "ok"):
-        return OUTCOME_REFUSED, None
-    warnings = []
-    for holder in (reply.get("decisions"), reply):
-        found = holder.get("warnings") if isinstance(holder, dict) else None
-        if isinstance(found, list):
-            warnings.extend(w for w in found if isinstance(w, str))
-    for warning in warnings:
-        if old_decision_id and old_decision_id in warning:
-            return OUTCOME_KEPT, warning
-    return OUTCOME_OK, None
+    `ok`: the new decision was recorded and the old one superseded. `proposed`:
+    the replacement was filed as a proposal and the old decision stays in force.
+    `kept`: the new decision landed and the brain did not replace the old one.
+    `not_replaced`: the new decision landed (or the brain already held it) and
+    the brain says nothing replaced the old one; `detail` is `duplicate` when it
+    already held it. `conflict`, `retry`, `throttled`, `not_accepted` and
+    `refused` are the plain outcomes of the report that was not recorded."""
+    outcome = plain_outcome(reply)
+    if outcome not in ("written", "duplicate"):
+        return outcome, None
+    detail = "duplicate" if outcome == "duplicate" else None
+    said = reply.get("replaces_outcome")
+    if said == "superseded":
+        return OUTCOME_OK, detail
+    if said in ("proposed", "kept"):
+        return said, detail
+    return "not_replaced", detail
 
 
 def _short(node):
-    return node if _binding.nonblank(node) else "unknown"
+    return _hook_line.clip(node, 32) if _binding.nonblank(node) else "unknown"
+
+
+def _is_node_id(value):
+    return (isinstance(value, str) and len(value) == 32
+            and all(c in "0123456789abcdef" for c in value))
+
+
+_OVERRULE_CLAUSES = {
+    "conflict": "not recorded: another decision has that title",
+    "retry": "the brain could not finish recording your choice",
+    "throttled": "not recorded: today's write budget is spent",
+    "not_accepted": "not recorded: the brain did not accept the call",
+    "refused": "not recorded: the brain refused it",
+}
 
 
 def _overrule_lines(outcome, node, detail=None):
     if outcome == OUTCOME_OK:
         return f"recorded your choice as replacing decision {node} (overruled)"
-    if outcome == OUTCOME_KEPT:
-        return f"your choice was recorded, but decision {node} stays in force: {detail}"
+    if outcome == "proposed":
+        return f"decision {node} stays in force \u2014 your choice was filed as a proposal to replace it"
+    if outcome == "kept":
+        return f"your choice was recorded, but the brain did not replace decision {node} with it"
+    if outcome == "not_replaced":
+        if detail == "duplicate":
+            return (f"decision {node} was not replaced \u2014 the brain already holds your choice "
+                    "as another decision")
+        return f"decision {node} was not replaced \u2014 your choice was recorded, but not as its replacement"
+    if outcome in _OVERRULE_CLAUSES:
+        return f"decision {node} was not replaced \u2014 {_OVERRULE_CLAUSES[outcome]}"
     if outcome == "unreachable":
-        return f"your choice was not recorded — the brain could not be reached; decision {node} stays in force"
+        return f"decision {node} may still be in force \u2014 the brain did not answer, so nothing is confirmed"
     if outcome == "off":
-        return (f"your choice was not recorded — brain write-back is off; "
+        return (f"your choice was not recorded \u2014 brain write-back is off; "
                 f"decision {node} stays in force")
     if outcome == "noproject":
-        return f"your choice was not recorded — no project is bound here; decision {node} stays in force"
+        return f"your choice was not recorded \u2014 no project is bound here; decision {node} stays in force"
     if outcome == "unprepared":
-        return f"your choice was not recorded — the confirmation could not be prepared; decision {node} stays in force"
+        return f"your choice was not recorded \u2014 the confirmation is unusable; decision {node} stays in force"
     if outcome == "noid":
-        return f"your choice was not recorded — the brain gave no id for decision {node}; it stays in force"
-    return f"your choice was not recorded — the brain refused it; decision {node} stays in force"
+        return f"your choice was not recorded \u2014 no usable id for decision {node}; it stays in force"
+    if outcome == "untimed":
+        return f"your choice was not recorded \u2014 the hook ran out of time; decision {node} stays in force"
+    if outcome == "untitled":
+        return f"your choice was not recorded \u2014 it has no usable title; decision {node} stays in force"
+    return f"your choice was not recorded \u2014 the brain refused it; decision {node} stays in force"
 
 
-def _overrule_model_text(outcome, entry, node, detail=None):
+def _overrule_model_text(outcome, entry, node):
     pick = f'"{entry["answer"]}"' if entry.get("answer") else "the person's choice"
+    head = "Fairmind company brain: "
     if outcome == OUTCOME_OK:
-        return (f"Fairmind company brain: the person overruled the brain's answer; their choice {pick} "
+        return (f"{head}the person overruled the brain's answer; their choice {pick} "
                 f"was recorded as replacing decision {node} (reason: overruled). The earlier decision "
                 "is kept for history and no longer answers questions. Record nothing further about it.")
-    if outcome == OUTCOME_KEPT:
-        return (f"Fairmind company brain: the person's choice {pick} was recorded, but decision {node} "
-                f"stays in force: {detail} Two decisions now answer this question until someone allowed "
+    if outcome == "proposed":
+        return (f"{head}the person's choice {pick} was filed as a proposal to replace decision {node}, "
+                "which stays in force until someone allowed to confirm the proposal does. Tell the person.")
+    if outcome == "kept":
+        return (f"{head}the person's choice {pick} was recorded, but the brain did not replace "
+                f"decision {node}. Two decisions now answer this question until someone allowed "
                 "to retire the earlier one does; tell the person.")
-    return (f"Fairmind company brain: the person's choice {pick} was NOT recorded, so decision {node} "
+    if outcome == "not_replaced":
+        return (f"{head}the person's choice {pick} is held by the brain, but not as the replacement of "
+                f"decision {node}, which stays in force for future sessions. Tell the person; do not "
+                "record it yourself unless they ask.")
+    if outcome == "unreachable":
+        return (f"{head}the brain did not answer, so it is not confirmed that the person's choice {pick} "
+                f"was recorded; decision {node} may still be in force for future sessions. Tell the person; "
+                "do not record it yourself unless they ask.")
+    return (f"{head}the person's choice {pick} was NOT recorded, so decision {node} "
             "stays in force for future sessions. Tell the person; do not record it yourself unless "
             "they ask.")
 
@@ -534,48 +581,50 @@ def classify(entries, typed, session_id):
 # Flow.
 # --------------------------------------------------------------------------- #
 
-def _send(server, batch, start):
-    """`(reply, refused)`: the brain's success reply, else `(None, refused)`.
+def _untimed(start):
+    """Whether the hook's own budget, counted from `start`, is spent."""
+    return time.monotonic() >= start + HOOK_BUDGET_S
 
-    A spent deadline is refused by `call_tool` itself and reads as any other
-    transport failure."""
+
+def _tell(server, report, start, down):
+    """`(reply, failure)`: the brain's answer to one report, else `(None,
+    failure)` with `failure` one of `untimed` (no budget left: nothing was
+    sent), `not_accepted` (an MCP error result: the brain answered the call
+    with an error) and `unreachable` (no answer: a deadline, an HTTP status, a
+    body that cannot be read). `down` is shared by a run: once a send got no
+    answer the rest are not tried, so a stalled brain holds the hook for one
+    send."""
     import _brain_mcp  # noqa: PLC0415 - its HTTPS opener is built at import
+    if down:
+        return None, "unreachable"
+    if _untimed(start):
+        return None, "untimed"
     deadline = send_deadline(start, time.monotonic())
     try:
-        reply = _brain_mcp.call_tool(server, "Brain_record_decision", batch, deadline=deadline)
+        return _brain_mcp.call_tool(server, "Brain_tell", report, deadline=deadline), None
+    except _brain_mcp.BrainToolError:
+        return None, "not_accepted"
     except Exception:  # noqa: BLE001 - every transport failure reads the same
-        return None, False
-    if _is_success(reply):
-        return reply, False
-    return None, isinstance(reply, dict) and "message" in reply
+        down.append(True)
+        return None, "unreachable"
 
 
-def _supersede(server, args, start):
-    """`(reply, reached)`: the brain's reply to a supersession, and whether the
-    brain was reached at all."""
-    import _brain_mcp  # noqa: PLC0415
-    deadline = send_deadline(start, time.monotonic())
-    try:
-        return _brain_mcp.call_tool(server, "Brain_supersede_decision", args, deadline=deadline), True
-    except Exception:  # noqa: BLE001
-        return None, False
-
-
-def _replace(server, args, entry, node, session_id, question, start, node_id=None):
-    """Send one supersession and report it: `(status line, model text)`. The
-    memory entry of the question is dropped only when the old decision is
-    actually retired, so a refused replacement keeps holding the brain back from
-    answering the question with the decision the person overruled."""
-    reply, reached = _supersede(server, args, start)
-    if not reached:
-        outcome, detail = "unreachable", None
+def _replace(server, report, entry, node, session_id, question, start, down, node_id=None):
+    """Send one replacing report and say what became of it: `(status line, model
+    text)`. The memory entry of the question is dropped only when the old
+    decision is actually superseded, so any other outcome keeps holding the
+    brain back from answering the question with the decision the person
+    overruled."""
+    reply, failure = _tell(server, report, start, down)
+    if failure:
+        outcome, detail = failure, None
     else:
-        outcome, detail = supersede_outcome(reply, args.get("old_decision_id"))
+        outcome, detail = replace_outcome(reply)
     if outcome == OUTCOME_OK:
         _answer_memory.remove(session_id, question)
         _answer_memory.remove_by_node(session_id, node_id)
     return (_hook_line.line("Brain", _overrule_lines(outcome, node, detail)),
-            _overrule_model_text(outcome, entry, node, detail))
+            _overrule_model_text(outcome, entry, node))
 
 
 def run(payload):
@@ -600,7 +649,18 @@ def run(payload):
     try:
         return _record(payload, entries, typed, confirmations, start)
     except Exception:  # noqa: BLE001 - the person is told, never left guessing
-        return render(entries + typed, None, None)
+        return render_failed(entries + typed)
+
+
+def _prepared(entry):
+    """The report a confirmation prepared, or None when it was prepared under
+    another shape (it carries no `intent`, or names no node to replace)."""
+    args = entry.get("args")
+    if (isinstance(args, dict) and args.get("intent") == "decision"
+            and isinstance(args.get("replaces"), dict)
+            and _is_node_id(args["replaces"].get("node_id"))):
+        return args
+    return None
 
 
 def _record(payload, entries, typed, confirmations, start):
@@ -620,11 +680,12 @@ def _record(payload, entries, typed, confirmations, start):
     for item in matches:
         _answer_memory.remove(session_id, item["entry"]["question"])
         parts.append(_hook_line.payload("PostToolUse", user=_hook_line.line(
-            "Brain", f"matches the brain's decision ({_short(item['memo']['node_id'])}) — not recorded again")))
+            "Brain", f"matches the brain's decision ({_short(item['memo']['node_id'])}) \u2014 not recorded again")))
     yes = []
     for text, answer, entry in confirmations:
-        _answer_memory.remove(session_id, text)
-        if answer.strip().casefold() == "yes":
+        # The removal is the claim: of two hooks that read this confirmation
+        # only the one whose delete succeeded may send what it prepared.
+        if _answer_memory.remove(session_id, text) and answer.strip().casefold() == "yes":
             yes.append(entry)
     if not (plain or replaces or asks or yes):
         return _merge(parts) or None
@@ -633,8 +694,7 @@ def _record(payload, entries, typed, confirmations, start):
     # cheap gates above decide most calls without it.
     import insights_flush_payload  # noqa: PLC0415
     overruled = [(i["entry"], i["memo"]) for i in replaces + asks]
-    overruled += [({"answer": e["args"]["new_decision"].get("title", "")}, {"node_id": e.get("old_node")})
-                  for e in yes if isinstance(e["args"].get("new_decision"), dict)]
+    overruled += [({"answer": e.get("answer", "")}, {"node_id": e.get("old_node")}) for e in yes]
     if insights_flush_payload.brain_is_disabled(cwd, toplevel=toplevel):
         return _merge(parts + [_blocked(entry, memo, "off") for entry, memo in overruled]) or None
     server = _mcp_config.fairmind_server(cwd, toplevel)
@@ -650,61 +710,79 @@ def _record(payload, entries, typed, confirmations, start):
     git_remote = audit_run_meta.normalize_git_remote(
         _git(toplevel, ("remote", "get-url", "origin"), start))
     repository = _binding.repository_id(ctx, git_remote) or os.path.basename(toplevel)
-    tool_use_id = payload.get("tool_use_id")
-    tool_use_id = tool_use_id if isinstance(tool_use_id, str) else ""
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    files = changed_files(toplevel, start) if (plain or replaces or asks) else []
+    down = []
 
-    def row_of(entry):
-        return build_row(entry, project=project, session_id=session_id,
-                         tool_use_id=tool_use_id, ts=ts, files=files)
+    def replacement_of(entry, memo):
+        return build_replacement(entry, memo["node_id"], repository=repository, project=project,
+                                 git_remote=git_remote, session_id=session_id)
 
     for item in replaces:
         entry, memo = item["entry"], item["memo"]
         node = _short(memo["node_id"])
-        if not _binding.nonblank(memo.get("decision_id")):
+        if not _is_node_id(memo["node_id"]):
             parts.append(_blocked(entry, memo, "noid"))
             continue
-        args = build_supersede(row_of(entry), memo["decision_id"], repository=repository,
-                               project=project, git_remote=git_remote, session_id=session_id)
-        line, model = _replace(server, args, entry, node, session_id, entry["question"], start,
-                            node_id=memo["node_id"])
+        report = replacement_of(entry, memo)
+        if report is None:
+            parts.append(_blocked(entry, memo, "untitled"))
+            continue
+        line, model = _replace(server, report, entry, node, session_id, entry["question"], start, down,
+                               node_id=memo["node_id"])
         parts.append(_hook_line.payload("PostToolUse", user=line, model=model))
     for item in asks:
         entry, memo = item["entry"], item["memo"]
         node = _short(memo["node_id"])
-        if not _binding.nonblank(memo.get("decision_id")):
+        if not _is_node_id(memo["node_id"]):
             parts.append(_blocked(entry, memo, "noid"))
             continue
-        args = build_supersede(row_of(entry), memo["decision_id"], repository=repository,
-                               project=project, git_remote=git_remote, session_id=session_id)
+        report = replacement_of(entry, memo)
+        if report is None:
+            parts.append(_blocked(entry, memo, "untitled"))
+            continue
         text = confirmation_text(entry)
         stored = _answer_memory.write(session_id, text, {
-            "kind": _answer_memory.KIND_CONFIRM, "args": args, "old_node": memo["node_id"]})
+            "kind": _answer_memory.KIND_CONFIRM, "args": report, "old_node": memo["node_id"],
+            "answer": entry["answer"]})
         if not stored:
             parts.append(_blocked(entry, memo, "unprepared"))
             continue
         _answer_memory.remove(session_id, entry["question"])
         parts.append(_hook_line.payload(
             "PostToolUse",
-            user=_hook_line.line("Brain", f"your choice differs from the brain's decision ({node}) — "
+            user=_hook_line.line("Brain", f"your choice differs from the brain's decision ({node}) \u2014 "
                                           "you will be asked whether to replace it"),
             model=_confirm_model_text(entry, node, text)))
     for entry in yes:
-        args = entry["args"]
+        report = _prepared(entry)
+        shown = {"answer": entry.get("answer", "")}
         node = _short(entry.get("old_node"))
-        shown = {"answer": args["new_decision"].get("title", "")} if isinstance(args.get("new_decision"), dict) else {}
-        line, model = _replace(server, args, shown, node, session_id, args.get("new_decision", {}).get("question", ""), start,
-                            node_id=entry.get("old_node"))
+        if report is None:
+            parts.append(_blocked(shown, {"node_id": entry.get("old_node")}, "unprepared"))
+            continue
+        line, model = _replace(server, report, shown, node, session_id, report.get("question", ""), start,
+                               down, node_id=entry.get("old_node"))
         parts.append(_hook_line.payload("PostToolUse", user=line, model=model))
 
-    if plain:
-        rows = [row_of(entry) for entry in plain]
-        batch = build_batch(rows, repository=repository, project=project,
-                            git_remote=git_remote, session_id=session_id)
-        reply, refused = _send(server, batch, start)
-        parts.append(render(rows, reply, server["key"], refused=refused))
+    results = []
+    for entry in plain:
+        report = build_report(entry, repository=repository, project=project,
+                              git_remote=git_remote, session_id=session_id)
+        if report is None:
+            results.append((entry, "untitled", None))
+            continue
+        reply, failure = _tell(server, report, start, down)
+        if failure:
+            results.append((entry, failure, None))
+        else:
+            results.append((entry, plain_outcome(reply), _node_of(reply)))
+    if results:
+        parts.append(render(results, server["key"], report_repository(repository)))
     return _merge(parts) or None
+
+
+def report_repository(repository):
+    """The repository value as the report carries it."""
+    return _tell_report.fit_ref(repository) or repository
 
 
 def _blocked(entry, memo, why):

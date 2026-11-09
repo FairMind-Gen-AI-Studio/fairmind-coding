@@ -1,6 +1,6 @@
 ---
 description: Run a Fairmind task/story in loop mode - the Technical Lead builds a machine-checkable stop condition, then implement→gate→iterate under budget until the executed gate passes and a human approves
-allowed-tools: Task, Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/run_gate_checks.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/loop_open.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/loop_dashboard.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/loop_ledger.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/admit_check.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/measure_metric.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/capture_baseline.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/sonar_gate.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/loop_worktree.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/brain_answer_hook.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/insights_flush_payload.py:*), Bash(node "${CLAUDE_PLUGIN_ROOT}"/scripts/bench_runner.js:*), Read, Edit(.fairmind/**), Grep, Glob, TodoWrite, mcp__Fairmind__Insights_record_loop_stats, mcp__Fairmind__Insights_record_agent_decisions, mcp__Fairmind__Studio_bulk_update_status, mcp__Fairmind__Studio_process_journal, mcp__Fairmind__Brain_record_decision, mcp__Fairmind__Brain_record_issue, mcp__Fairmind__Brain_answer, mcp__Fairmind__General_list_projects, mcp__Fairmind__General_list_work_sessions, mcp__Fairmind__Studio_get_task, mcp__Fairmind__Studio_get_user_story, mcp__Fairmind__Studio_list_tests_by_userstory
+allowed-tools: Task, Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/run_gate_checks.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/loop_open.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/loop_dashboard.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/loop_ledger.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/admit_check.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/measure_metric.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/capture_baseline.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/sonar_gate.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/loop_worktree.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/brain_answer_hook.py:*), Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/insights_flush_payload.py:*), Bash(node "${CLAUDE_PLUGIN_ROOT}"/scripts/bench_runner.js:*), Read, Edit(.fairmind/**), Grep, Glob, TodoWrite, mcp__Fairmind__Insights_record_loop_stats, mcp__Fairmind__Insights_record_agent_decisions, mcp__Fairmind__Studio_bulk_update_status, mcp__Fairmind__Studio_process_journal, mcp__Fairmind__Brain_tell, mcp__Fairmind__Brain_answer, mcp__Fairmind__General_list_projects, mcp__Fairmind__General_list_work_sessions, mcp__Fairmind__Studio_get_task, mcp__Fairmind__Studio_get_user_story, mcp__Fairmind__Studio_list_tests_by_userstory
 ---
 
 # fairmind-loop
@@ -197,34 +197,40 @@ Then do the machinery reading **silently** — no play-by-play of engine/hook re
 - **Studio task-lifecycle write-back, only after the human approves.** Once the human approves a `passed_pending_human` loop — never automatically on a green gate, mirroring the no-auto-merge rule above — reflect the result onto the Studio task itself, attempting the two calls independently so a failure in one never masks the other: `<task_id>` is the Studio task id that the loop's `task_ref` resolves to (the ref set by Phase 0's repoint into `active-context.json`/`loop-state.json`), and `<project_id>` is the project from that same `active-context.json`. `mcp__Fairmind__Studio_bulk_update_status(ids=[<task_id>], status="passed", entity_type="task")` advances the task's status, and `mcp__Fairmind__Studio_process_journal(task_id=<task_id>, journal_content=<journal contents>, project_id=<project_id>)` attaches the loop's journal to the task as activities — `journal_content` is the journal's file **contents**, not a path: read every `${FAIRMIND_BASE}/journals/<taskRef>_*.md` matching this task ref (concatenating them when more than one agent journaled) and pass the combined text as `journal_content`. Loop-outcome → Studio-status mapping: the human-approved `passed_pending_human` outcome pairs with the Studio `passed` status — Studio's task status is drawn from the `ImplementationState` vocabulary, and `passed` is the member meaning checks passed and the human signed off, awaiting the human's own separate merge action: the loop reaching green plus this approval is not the merge itself (the flip to `merged` is a later, human-driven step), so `passed` — never `completed`/`done`, neither of which is an `ImplementationState` member — is the accurate state at write-back time. If either `Studio_*` tool is absent (not yet shipped server-side, or the Fairmind MCP not connected) — or a write is denied (the caller needs `editor+` on the project) — do not fail the close: report each write that failed as **not synced** in the Exit report, independently, since a status update can succeed while the journal attach fails or vice versa. This write-back has no on-disk queue and approval happens out-of-band, so it cannot be picked up the way the insights flush above is — the only recovery is a **rerun**: re-running the loop to its human-approved Exit re-attempts both MCP calls once the tools or the MCP connection are available.
 
 - **Brain write-back, only after the human approves.** Same trigger as the Studio
-  write-back above and the same failure rule — attempt each call independently, and report
-  a failure as **not synced** in the Exit report rather than failing the close. What goes
-  up is what the run itself produced:
+  write-back above and the same failure rule: attempt each call independently, and report a
+  failure as **not synced** in the Exit report rather than failing the close. Check that
+  `mcp__Fairmind__Brain_tell` is in your tool list by name first; without it, skip this
+  block and say so. What goes up is what the run itself produced, told as what happened:
 
-  1. **Decisions.** Emit them with
-     `python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/insights_flush_payload.py --emit brain --out`
-     and `Read` the `out` path. The category is `build_decisions_batches` filtered to the
-     rows the agents typed with one of the six kinds (`recurring-fix`, `business-rule`,
-     `architecture`, `standard-deviation`, `dependency`, `other`) — a list of
-     `fm-insights.decision/2` batches, the same contract and the same split as `decisions`,
-     each row carrying `origin: "taken"` — so send each batch as its
-     own `mcp__Fairmind__Brain_record_decision` call with that batch's own `repository`,
-     `git_remote`, `session_ref` and `task_ref` (`null` refs included, never merged). Then
-     `--commit brain`, **only after every one of those calls returned success**.
-  2. **Issues the loop surfaced and did not fix.** One
-     `mcp__Fairmind__Brain_record_issue` per finding, drawn from `loop-state.json`: an
-     advisory or quarantined check still red at close, and a completeness review that
-     recorded `gaps`. Each needs a `natural_key` **you** author and that a re-run would
-     author identically — `<task_ref>:<check id>` for a check, `<task_ref>:gaps` for the
-     review — since that key is what makes a second close update the issue instead of
-     filing it twice. There is no on-disk queue for these: an issue not recorded here is
-     recorded on a later close, or not at all.
+  1. **Record the verdict first** (`run_gate_checks.py --human-gate approved`, above), then
+     emit with
+     `python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/insights_flush_payload.py --emit brain --gate-approved --out`
+     and `Read` the `out` path. The verb checks that the loop is at its human gate and that
+     the last recorded verdict is an approval of the gate's current round; otherwise it
+     exits 2 with the reason on stderr and emits nothing: record the verdict, then run it
+     again. It records the approval once per round.
+  2. **Decisions.** `brain.reports[]` holds one ready `Brain_tell` call per decision the
+     agents typed with one of the six kinds. Send each as its own
+     `mcp__Fairmind__Brain_tell` call with `brain.reports[].arguments` exactly as given; add
+     nothing and change nothing. `brain.not_sendable[]` lists rows that can never be sent
+     (`title_unusable`, `rationale_missing`): report them, do not retry them. A plain
+     `--emit` (the Exit gate's `--emit all`) withholds this loop's rows until the gate is
+     approved and lists them in `brain.held[]`; they are sent by the emit above.
+  3. **Issues the loop surfaced and did not fix.** `brain.issues[]` holds one call per check
+     the gate did not evaluate and one for a completeness review that recorded gaps; send
+     each as a `mcp__Fairmind__Brain_tell` call. A later close sends them again and the brain
+     answers `duplicate`. Report `brain.issues_not_sendable[]`.
+  4. **Read each answer by its `state`.** Settle on `confirmed`, `proposed`, `duplicate`,
+     `conflict` (report it with the `node_id` it returned) and on a content refusal; then run
+     `--commit brain`, **only after every report has settled**. Leave `brain` uncommitted
+     on `unresolved`, `throttled`, `retry`, no answer, `mismatch` and an MCP error result: the
+     plugin and the brain disagree on the report's shape, so tell the person to update the
+     plugin. An issue answered `conflict` is sent once more with `revises: <node_id>`. Say
+     what each `state` was and never say where a record lands.
 
-  🔴 **Decisions land taken, issues land `proposed`, and you never call
-  `Brain_set_status`.** A decision recorded at the human gate was taken there, so the brain
-  stores it with status `taken` and review state `confirmed`, and it changes only by
-  supersession. An issue is a proposal for a person to confirm or reject in the review
-  queue; confirming is a human act and no verb of this command reaches it.
+  🔴 **Decisions are told as taken and issues land `proposed`.** Never send a status, a
+  `retract` or a `same_as` to confirm anything: confirming is a human act in the review queue
+  and no verb of this command reaches it.
 
   **This route has a switch, and the producer enforces it — you do not have to.** The
   `brain` key of `.fairmind-insights.json` (`/fairmind-config brain on|off|unset`, effective

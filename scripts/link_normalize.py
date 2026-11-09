@@ -459,16 +459,20 @@ def _single(args):
     return 0
 
 
-def main(argv=None):
-    parser = argparse.ArgumentParser(prog="link_normalize.py")
+def _parser():
+    parser = argparse.ArgumentParser(prog="link_normalize.py", allow_abbrev=False)
     parser.add_argument("--in", dest="input")
     parser.add_argument("--out")
     parser.add_argument("--url")
     parser.add_argument("--source")
     parser.add_argument("--page-id")
     parser.add_argument("--site")
+    return parser
+
+
+def main(argv=None):
     try:
-        args = parser.parse_args(argv)
+        args = _parser().parse_args(argv)
     except SystemExit as stop:
         return stop.code if isinstance(stop.code, int) else 2
     if args.input and args.out and not args.url:

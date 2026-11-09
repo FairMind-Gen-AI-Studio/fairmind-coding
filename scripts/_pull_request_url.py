@@ -43,3 +43,9 @@ def canonical_pull_request_url(url):
 def pull_request_key(url):
     canonical = canonical_pull_request_url(url)
     return canonical.lower() if canonical else None
+
+
+def is_pull_request_url(url):
+    """True when `url` is a pull request page (or one of its tabs) on any host."""
+    canonical = canonical_pull_request_url(url)
+    return bool(canonical and _PAGE.match(urlsplit(canonical).path))

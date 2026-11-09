@@ -11,8 +11,12 @@ Three things about the file, worth saying out loud when you create it:
   is there and let them decide whether to commit it.
 - **The date prefix makes it point-in-time.** A second run on another day writes another file
   rather than overwriting this one, which is what allows two reconstructions to be compared.
-- **It must be readable without the brain.** Every claim carries its node id *and* enough words
-  to be understood by someone who cannot open that node.
+- **It must be readable without the brain.** Every claim carries its title *and* its id, and
+  enough words to be understood by someone who cannot open that record.
+
+The report states conclusions with references. The brain's answer to a directory question is a
+set of conclusions and one `coverage` sentence, and the report quotes both; it is not a graph
+and not an inventory of files.
 
 ---
 
@@ -23,7 +27,7 @@ Generated {YYYY-MM-DD} from the code graph and the company brain.
 **Status: proposed — awaiting human review.** Nothing here is confirmed knowledge; every draft
 listed below exists in the review queue as a proposal until a person confirms or rejects it.
 
-## Scope and freshness
+## Scope
 
 | | |
 |---|---|
@@ -32,25 +36,20 @@ listed below exists in the review queue as a proposal until a person confirms or
 | Project | {project_name} (`{project_id}`) |
 | Modules | {n} |
 | Files inventoried | {n} |
-| Brain last synced | {last_synced_at} |
-| Sync state | {sync_state} |
-| Code graph | {available / unavailable} |
-
-> {One sentence on what the freshness figures mean for this report — e.g. "the graph was last
-> synced 11 days ago, so anchors into code added since then resolve as unresolved."}
+| Precedents | {checked / not checked: {why}} |
+| Modules not asked | {list, or none} |
 
 ## How to read this
 
-**Confidence** is about the *anchor* — how firmly a draft is tied to code:
+**Confidence** is about how firmly a draft is tied to code:
 
-- **Anchored** — the draft points at code that exists in the graph today.
-- **Semantic** — the brain record was found by meaning, not by an anchor. Weakest tier; treat
-  as a lead.
+- **Anchored** — the draft names a file or function that exists in the inventory today.
 - **Inferred** — derived from the code with no brain record behind it. Not knowledge yet.
 
-**Review state** is a different axis, about *trust*, and it is printed beside every precedent:
+**Review state** is a different axis, about *trust*, and it is printed beside every
+consideration and every precedent:
 
-- **confirmed** — a person agreed with this record. It is knowledge.
+- **confirmed** — a person agreed with the record it rests on. It is knowledge.
 - **proposed, not yet confirmed** — a draft nobody has confirmed. On any run after the first,
   some of these are **this report's own predecessors**: a precedent marked that way means the
   draft above it rests on an earlier guess, not on a decision anyone made.
@@ -59,37 +58,45 @@ listed below exists in the review queue as a proposal until a person confirms or
 
 ## {Module name}
 
-`{path/}` · {n} files · {n} brain items
+`{path/}` · {n} files
+
+### What the brain holds about this code
+
+{The `coverage` sentence of the module's answer, verbatim — or "listed, not composed: {reason}".}
+
+- {Conclusion, in the brain's words} ({confirmed | **proposed, not yet confirmed**}) —
+  references: {title and id of each card, file, document}
+- Found, not cited: {title and id, or none}
 
 ### Functional requirements
 
 #### FR-{n} · {title}
 {The requirement, in one or two sentences.}
 
-- **Anchors:** `{path}` · `{symbol}` ({FUNCTION|CLASS|FILE})
-- **Precedents:** `{node_id}` ({confirmed | **proposed, not yet confirmed**}) — {what that record is}
-- **Confidence:** anchored | semantic | inferred
-- **Natural key:** `{module}:{slug}`
+- **Files:** `{path}` · `{function}`
+- **Precedents:** {title} (`{id}`) ({confirmed | **proposed, not yet confirmed**}) — {what that record is}
+- **Confidence:** anchored | inferred
+- **Title told:** `{module} · {requirement}`
 
 ### Technical requirements
 
 #### TR-{n} · {title}
 {The requirement.}
 
-- **Anchors:** `{path}`
-- **Precedents:** `{node_id}` ({confirmed | **proposed, not yet confirmed**})
+- **Files:** `{path}`
+- **Precedents:** {title} (`{id}`) ({confirmed | **proposed, not yet confirmed**})
 - **Confidence:** {…}
-- **Natural key:** `{module}:{slug}`
+- **Title told:** `{module} · {requirement}`
 
 ### Contradictions — listed, not resolved
 
-- The brain records {X} (`{node_id}`, {status}, {date}). The code does {Y} (`{path}:{symbol}`).
+- The brain records {X} ({title}, `{id}`, {date}). The code does {Y} (`{path}:{symbol}`).
   **Unresolved: a person who knows why has to decide.**
 
-### Retired or superseded — do not re-specify
+### Removed or replaced — do not re-specify
 
-- **{title}** (`{node_id}`) — {retired|superseded} {date}. Reason as recorded: "{reason}".
-  {Decision behind it, when there is one: `{node_id}`.}
+- **{title}** (`{id}`) — {removed|replaced} {date}. Reason as recorded: "{reason}".
+  {Record behind it, when there is one: {title} (`{id}`).}
 
 ### Open questions
 
@@ -99,42 +106,17 @@ listed below exists in the review queue as a proposal until a person confirms or
 
 ## Coverage
 
-### Files nothing explains ({n})
+The brain's own account of each module is the `coverage` sentence quoted in its section. It is
+not recomputed, and no figure here is comparable across runs except as that sentence.
 
-Measured with `include_proposed: false`, so this counts what **human-confirmed** knowledge
-explains, not what this skill has already proposed about the repository. State it that way
-whenever the number is quoted; a coverage figure without its setting cannot be compared with
-the next run's.
+### Requirements about paths that resolve to nothing ({n})
 
-| pass | `uncovered[]` |
-|---|---|
-| coverage (`include_proposed: false`) | {n} |
-| evidence (`include_proposed: true`) | {n} |
-
-{On a rerun, two identical counts mean the filter did not reach `uncovered[]` — the coverage
-number is counting this skill's own drafts, and must not be read as human knowledge. On a
-first run they agree trivially, because there are no proposals yet.}
-
-| File | Module |
-|---|---|
-| `{path}` | {module} |
-
-{When the list is long, give the count per module here and the full list in the appendix.}
-
-### Requirements whose anchors resolve to nothing ({n})
-
-| Requirement | Node id | Anchor that no longer resolves |
+| Requirement | Id | Path that no longer resolves |
 |---|---|---|
-| {title} | `{node_id}` | `{path}` |
+| {title} | `{id}` | `{path}` |
 
 These are requirements about code that moved, was renamed, or was removed. Each one is either a
-requirement to retire or an anchor to repair — a person decides which.
-
-### Resolution tiers
-
-| extracted | inferred | ambiguous | unresolved | semantic |
-|---|---|---|---|---|
-| {n} | {n} | {n} | {n} | {n} |
+requirement to retire or a path to repair — a person decides which.
 
 ---
 
@@ -142,11 +124,12 @@ requirement to retire or an anchor to repair — a person decides which.
 
 | | |
 |---|---|
-| Drafts recorded | {n} — functional {n}, technical {n}; every one `proposed` |
-| Already confirmed by a human | {n} — `review_state: confirmed` among what the context calls returned; 0 on a first run |
-| With ≥1 resolving code anchor | {n} / {n} |
+| Drafts told | {n} — functional {n}, technical {n}; every one `proposed` |
+| Already confirmed by a human | {n} — `confirmed` among what the module answers returned; 0 on a first run |
+| With ≥1 file or function | {n} / {n} |
 | With ≥1 brain precedent | {n} / {n} — of which unconfirmed proposals {n} |
-| Revision proposals filed | {n} — the natural key already belonged to a confirmed record |
+| Answered `duplicate` | {n} — already there, nothing changed |
+| Answered `conflict` | {n} — a record under that title says something different; nothing overwritten |
 | Not written (refused or failed) | {n} |
 | Modules covered | {n} / {n} |
 
@@ -157,8 +140,8 @@ and no part of the run confirmed anything.
 
 ## Reproducing this run
 
-- Natural keys are `{module}:{slug of the title}` — rerunning with the same module names
-  updates these drafts instead of creating new ones.
+- Titles are `{module} · {requirement}` — rerunning with the same module names finds these
+  drafts instead of creating new ones.
 - Module names used: {list}.
 - Scope: {whole repository | the subtree `{path}`}.
 ```

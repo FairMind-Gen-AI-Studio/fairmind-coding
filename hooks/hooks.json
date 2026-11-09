@@ -37,6 +37,21 @@
             "type": "command",
             "command": "\"$CLAUDE_PLUGIN_ROOT\"/hooks/scripts/validate-fairmind-path.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PLUGIN_ROOT\"/hooks/scripts/artifact-cards.sh gate",
+            "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PLUGIN_ROOT\"/hooks/scripts/artifact-cards.sh bash-gate",
+            "timeout": 20
           }
         ]
       },
@@ -92,6 +107,23 @@
             "type": "command",
             "command": "\"$CLAUDE_PLUGIN_ROOT\"/hooks/scripts/brain-record-answer.sh",
             "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(gh pr merge *)",
+            "command": "\"$CLAUDE_PLUGIN_ROOT\"/hooks/scripts/artifact-cards.sh pr-closed",
+            "timeout": 20
+          },
+          {
+            "type": "command",
+            "if": "Bash(gh pr close *)",
+            "command": "\"$CLAUDE_PLUGIN_ROOT\"/hooks/scripts/artifact-cards.sh pr-closed",
+            "timeout": 20
           }
         ]
       }
@@ -152,6 +184,16 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PLUGIN_ROOT\"/hooks/scripts/session-start-insights.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PLUGIN_ROOT\"/hooks/scripts/artifact-cards.sh refresh",
+            "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PLUGIN_ROOT\"/hooks/scripts/brain-brief.sh",
             "timeout": 5
           }
         ]

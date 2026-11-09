@@ -43,7 +43,7 @@ THE SILENT TRAPS IT EXISTS TO NAME (each measured, not assumed):
      claim), so it reports what it CAN measure: two armed keys pointing at two
      different hosts, side by side, for a human to settle.
   3. The key expires and cannot be renewed. `exp` is printed on every run and
-     an expiry inside 30 days is a warning, because the failure it prevents —
+     an expiry inside `_EXPIRY_WARNING_DAYS` is a warning, because the failure it prevents —
      a lane that silently stops delivering — has no other local symptom.
   4. `--project B` against a key whose own `projectId` claim is A. The server
      enforces per-project write access from the VERIFIED claim, never from
@@ -113,10 +113,11 @@ _TENANT_STATUS_PATH = "/insights/v1/tenant-status"
 _TIMEOUT_S = 15
 _MAX_RESPONSE_BYTES = 65536
 
-#: An expiry closer than this is a warning. The number is a month because that
-#: is the horizon on which "ask Studio for a new key" is a task rather than an
-#: emergency; the key cannot be renewed, so the only cure is a new one.
-_EXPIRY_WARNING_DAYS = 30
+#: An expiry closer than this many days is a warning. It must stay well under
+#: the lifetime of a Studio project key (30 days by default), or every run warns
+#: from the day the key is minted and the warning says nothing. A week leaves
+#: time to mint a replacement; the key cannot be renewed, so that is the only cure.
+_EXPIRY_WARNING_DAYS = 7
 
 #: `mode` written when this command has to CREATE `.fairmind/active-context.json`
 #: (a checkout connected before it ever ran a loop). It is deliberately
@@ -308,7 +309,7 @@ def _describe_expiry(exp, report):
             f"the project key EXPIRED on {stamp}. It cannot be renewed: mint a new "
             "one in Studio -> your avatar -> Developer, and replace the entry")
         return False
-    if remaining <= _EXPIRY_WARNING_DAYS:
+    if remaining < _EXPIRY_WARNING_DAYS:
         report.warn(f"the project key expires on {stamp} ({remaining} days) and cannot "
                     "be renewed — mint a replacement before it does")
     else:

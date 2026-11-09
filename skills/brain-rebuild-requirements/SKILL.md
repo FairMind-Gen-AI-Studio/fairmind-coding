@@ -1,6 +1,6 @@
 ---
 name: brain-rebuild-requirements
-description: Use when the requirements of a system that already exists have to be recovered rather than written - rebuilding a legacy service on a modern stack, taking over an undocumented codebase, or answering "what is this module actually supposed to do, and why". Reads the ingested code and the company brain module by module, derives functional and technical requirement drafts each carrying at least one code anchor, reports what is uncovered, and records the drafts as proposals for a human to confirm. Also use when asked to "reconstruct the requirements", "document what this service does", or "get the spec out of the code".
+description: Use when the requirements of a system that already exists have to be recovered rather than written - rebuilding a legacy service on a modern stack, taking over an undocumented codebase, or answering "what is this module actually supposed to do, and why". Reads the ingested code and asks the company brain about it module by module, derives functional and technical requirement drafts each naming at least one file or function, reports what the brain holds and what it covers, and records the drafts as proposals for a human to confirm. Also use when asked to "reconstruct the requirements", "document what this service does", or "get the spec out of the code".
 ---
 
 # Rebuild requirements from what exists
@@ -8,17 +8,17 @@ description: Use when the requirements of a system that already exists have to b
 ## Overview
 
 A system that runs is a system whose requirements were written down once, partly, somewhere
-— or never. This skill reconstructs them: it walks the repository module by module, pulls
-the **why** the company brain already holds for each one (requirements, tasks, issues,
-decisions, including the ones that were retired and the reason they were), derives
+— or never. This skill reconstructs them: it walks the repository module by module, asks the
+**why** the company brain already holds for each one (requirements, tasks, issues,
+decisions, including the ones that were removed and the reason they were), derives
 functional and technical requirement **drafts** with evidence attached, and records them
 back as proposals.
 
 Two properties make the output usable rather than plausible:
 
-- **Every draft carries evidence.** At least one code anchor — the file, and where it is
-  known the symbol — and, where the brain already holds something behind it, the node id of
-  that record. A draft with no anchor is reported as unanchored, not shipped as if it were
+- **Every draft carries evidence.** At least one file — and where it is known the function —
+  and, where the brain already holds something behind it, that record, cited by title and id.
+  A draft with no file or function is reported as unanchored, not shipped as if it were
   grounded.
 - **Nothing is confirmed by this skill.** Everything it writes lands as `proposed`. A human
   confirms in the review queue. That is not a policy this skill can relax.
@@ -31,13 +31,15 @@ resolution chain this skill reuses in Step 0. The step-by-step detail, the modul
 and the exact call shapes live in `references/playbook.md`; the report layout in
 `references/report-template.md`.
 
-**What leaves your machine when this skill writes.**
-`mcp__Fairmind__Brain_record_requirement` sends the requirement title and text as drafted,
-its anchors (repo-relative **file paths**, symbol names, line hints, and the **repository's
-catalog id**), the node ids cited as precedents, and an agent label — to the Fairmind
-platform your project's MCP entry points at. It confirms nothing and changes no existing
-record. This is the **brain write-back**, and the plugin README's *What leaves your machine*
-describes it in full under that name — alongside every other route by which anything leaves.
+**What leaves your machine when this skill works.**
+`mcp__Fairmind__Brain_tell` sends each requirement's title and text as drafted, the
+repo-relative **file paths** and **function names** it is about, the title, link and summary
+of a document it rests on, an agent label and this session's Claude Code session id — to the
+Fairmind platform your project's MCP entry points at. It confirms nothing and changes no
+existing record. `mcp__Fairmind__Brain_ask` sends one question per module, naming the module's
+**directory path**, and a few questions in the words of the module's domain. This is the
+**brain write-back**, and the plugin README's *What leaves your machine* describes it in full
+under that name — alongside every other route by which anything leaves.
 
 ## When to Use
 
@@ -65,10 +67,12 @@ Do **not** use it to write a *new* requirement from an idea — that is
    the *why* from, and a "reconstruction" from code alone is a summary of the code, not
    requirements. (`mcp__Fairmind__Insights_bind_repository` exists as a platform door; this
    skill does not call it.)
-3. Confirm the ten `mcp__Fairmind__Brain_*` tools are in the tool list. They arrive with the
-   platform's **Brain-1** release; an older server answers `mcp__Fairmind__Studio_*` and
-   `mcp__Fairmind__Insights_*` normally and exposes no `mcp__Fairmind__Brain_*` tool at all.
-   If they are absent, say which release is needed and stop.
+3. Confirm these tools are in the tool list, by name: `mcp__Fairmind__Brain_tell` and
+   `mcp__Fairmind__Brain_ask`. A server that predates the platform release serving them
+   answers `mcp__Fairmind__Studio_*` and `mcp__Fairmind__Insights_*` normally and exposes
+   neither. **Without `Brain_tell`, say which release is needed and stop.** Without
+   `Brain_ask`, go on and draft from the code, mark every item inferred, and say in the
+   report "precedents not checked: the brain's ask tool is absent".
 4. Ask the user for the scope if it is not obvious: whole repository, or a named subtree.
 
 ## Step 1: Bind and inventory
@@ -80,143 +84,154 @@ Do **not** use it to write a *new* requirement from an idea — that is
    points and boundaries, `mcp__Fairmind__Code_analyze_repo` for the repository's maturity
    read (`output_format: "summary"`) when the user wants it framed.
 3. Group files into **modules**. Prefer the repository's own boundaries — top-level source
-   directories, packages, deployable services. When existing brain items already cluster on
-   a directory under a name, reuse that name: module names are half of the natural key, and
-   a renamed module produces duplicate drafts on the next run.
+   directories, packages, deployable services. When the brain's answers already cluster on a
+   directory under a name, reuse that name: the module name is part of every draft's title,
+   and a renamed module produces duplicate drafts on the next run.
 4. Print the module list and the file counts, and let the user correct it **before** any
    derivation. A wrong grouping is cheap to fix here and expensive to fix afterwards.
 
-## Step 2: Collect the "why" for each module
+## Step 2: Ask the brain for the "why" of each module
+
+Every `mcp__Fairmind__Brain_ask` call carries a `question` in plain words, `project` (the
+bound `project_id`) and a `question_type`. What comes back is a short list of
+**considerations** — each a sentence the brain composed, with whether a person confirmed what
+it rests on and the references behind it (cards, documents, files, tickets, pull requests) —
+plus **further reading**: records found and not cited, and a `coverage` sentence saying how
+much of the question the brain could answer.
 
 Per module, in this order:
 
-1. `mcp__Fairmind__Brain_context` with `directory: "<module path>"`, `granularity: "file"`,
-   `detail_level: "minimal"`. It returns the items anchored under that directory, per-file
-   counts, and — the part this skill is built around — **`uncovered[]`**, the files with
-   nothing behind them. Make the call **twice**, and never pool the two answers:
+1. `question_type: "file"` with `subject: {"file": {"repository": <the bound repository_id>,
+   "path": <the module directory, ending in "/">}}` and a `question` naming the module and
+   asking what the brain holds about it and why. A path that ends in `/` asks about the whole
+   directory. One such question per module.
+2. `question_type: "precedent"` for what the module's directory cannot reach: the module name
+   and its domain vocabulary. Behaviour that was removed deliberately must not be re-specified
+   by accident — that is the single most expensive mistake this whole exercise can make. At
+   most three `precedent` questions in a run; a module past them is named as "not asked".
+3. **Cite each consideration with its state.** One whose `confirmed` is false is a draft
+   nobody has confirmed — quite possibly one this very skill wrote on an earlier run — and is
+   cited "(proposed, not yet confirmed)", never bare; an entry of `further_reading` is listed
+   as "found, not cited". A consideration is said to cite knowledge recorded **at a file**
+   only when it comes from a `file` question and one of its `file` references has the bound
+   repository and that path. On any other question a `file` reference carries the catalog's
+   own spelling of the repository: quote its path as a pointer and make no claim about where
+   anything was recorded.
+4. Keep the `coverage` sentence of each module's answer. It is the brain's own account of what
+   it holds about that directory; it is quoted, never recomputed here, and never pooled with
+   another module's.
 
-   | pass | `include_proposed` | what it is for |
-   |---|---|---|
-   | evidence | `true` | everything anchored there, **drafts included** — the widest view, for deriving |
-   | coverage | `false` | only what a human has confirmed — this is the `uncovered[]` the report quotes |
+How to read what `Brain_ask` answers, for this skill, which writes:
 
-   **The coverage numbers come from the second call.** On a first run the two agree. On a
-   rerun they do not, and the reason is this skill: run 1's own proposals are anchored under
-   that directory now, so the `include_proposed: true` view shows a module as explained when
-   the only thing explaining it is what this skill said last time. Coverage measured that way
-   improves because the skill wrote to itself.
+| Answer | What to do |
+|---|---|
+| `configuration_unset` or `disabled` (with a `key`) | say "precedents not checked: `<key>`", then draft and write |
+| `configuration_invalid` (with a `key`) | the same, "misconfigured" |
+| `retryable: True` (`retrieval_failed`, `catalog_unavailable`) | retry once, then "precedents not checked" |
+| access denied | "precedents not checked", then write; `Brain_tell` decides whether this key may |
+| `project_unresolved` | stop before the draft and route the person to `/fairmind-connect` |
+| `invalid_parameter` (with a `parameter`) | fix that parameter once and ask again, then "precedents not checked" |
+| `composed: false` | say "listed, not composed", with the `reason`; for `nothing_found`, quote the `coverage` |
+| `throttled` | stop the reading, never retry, and write |
 
-   Write into the report **which pass produced the coverage figures**. And report the two
-   `uncovered[]` counts side by side. On a run where the module holds proposals — any rerun of
-   this skill — two *identical* counts mean the filter did not reach `uncovered[]`, so even
-   the coverage pass is counting drafts; say so rather than quoting the number as if it were
-   human knowledge. (On a first run the two agree trivially, because there are no proposals
-   yet, and that tells you nothing.) The platform contract does not settle which behaviour to
-   expect, which is exactly why both numbers are printed instead of one.
-2. `mcp__Fairmind__Brain_search` for what the anchors cannot reach: the module name and its
-   domain vocabulary, `k` small. Run it **twice** per phrasing: once unfiltered, and once for
-   the removal states, `status: ["retired", "superseded"]` — `status` takes one value or a
-   list. Their results carry the `reason` the record was retired. Behaviour that was removed deliberately
-   must not be re-specified by accident — that is the single most expensive mistake this
-   whole exercise can make.
-3. Read the staleness envelope the context call returns (`repo.last_synced_at`,
-   `sync_state`, `graph_available`, and the `resolution` tiers). A stale or ungraphed
-   repository does not invalidate the run; it changes what the report may claim, so carry
-   those numbers into it.
-4. Note the `resolution` counts: items reached `SEMANTIC` are the weakest tier and are
-   labelled as such in the report, never mixed in with anchored evidence.
-5. **Label every item that comes back with its `review_state`** — `proposed`, `confirmed` or
-   `rejected` — and keep that label attached wherever the item is used afterwards. It is a
-   different axis from `status` (`status` is the record's *lifecycle*: live, retired,
-   superseded; `review_state` is whether a **human has ever agreed with it**), and a different
-   axis again from `anchor_confidence`. A `proposed` item is a draft nobody has confirmed —
-   quite possibly one this very skill wrote on an earlier run.
-
-**Token discipline.** `detail_level: "minimal"` on every context call, `max_items` at the
-default. Open a record with `mcp__Fairmind__Brain_get` only when a draft actually depends on
-its body, and use `mcp__Fairmind__Brain_expand` for neighbouring chunks rather than
-re-fetching. `mcp__Fairmind__Brain_search` pages: a `next_cursor` that is not null is the
-next page, fetched by sending the same call with `cursor` set to it, until it comes back null.
-Follow it for at most five pages per search, and say in the report when a search stopped with
-a cursor still there.
+After an answer with `reason: cap_reached`, send no further `Brain_ask` in this run; the
+modules left are named as "not asked".
 
 ## Step 3: Derive requirements per module
 
 For each module produce two lists:
 
-- **Functional requirements** — behaviour visible to a user or another system, written in
-  the platform's requirement vocabulary (need / user story / functional).
+- **Functional requirements** — behaviour visible to a user or another system.
 - **Technical requirements** — integrations, data, constraints, and non-functional
   properties (performance, security, availability) that the code demonstrably imposes.
 
 Rules that hold for every derived item:
 
-- **At least one code anchor**, and the anchor names a file that exists in the inventory.
-  Where the symbol is known, name it (`symbol_type` is `FUNCTION`, `CLASS` or `FILE`).
-- **Cite the brain node ids** behind the item when they exist — an existing requirement, the
-  decision that constrains it, the issue that produced it.
+- **At least one file or function**, and it names a file that exists in the inventory. Where
+  the symbol is known, name it.
+- **Cite the records behind the item** when they exist — an existing requirement, the
+  decision that constrains it, the issue that produced it — by title and id, from the
+  references of Step 2.
 - **A `proposed` precedent is cited with its state in the same line, or not at all.** The
-  honest form is `precedent: {node_id} (proposed, not yet confirmed)`. This matters most on a
-  rerun, when the brain holds this skill's own earlier drafts: a requirement grounded in an
-  unconfirmed draft is a requirement grounded in a previous guess, and nothing in the node id
+  honest form is `precedent: {title} ({id}) (proposed, not yet confirmed)`. This matters most
+  on a rerun, when the brain holds this skill's own earlier drafts: a requirement grounded in
+  an unconfirmed draft is a requirement grounded in a previous guess, and nothing in the id
   says so. Prefer a confirmed precedent where one exists; where none does, say the grounding
-  is unconfirmed rather than presenting a node id as evidence.
+  is unconfirmed rather than presenting an id as evidence.
 - **Contradictions are listed, never resolved.** When the brain says one thing and the code
   does another, write both, name both sources, and leave it for the human. Silently
   preferring the code turns a genuine decision into an invisible one.
-- **State what is inferred.** A requirement no record supports and no anchor proves is an
+- **State what is inferred.** A requirement no record supports and no file proves is an
   inference; mark it, and prefer an open question over a confident sentence.
 
-## Step 4: Coverage report
+## Step 4: Report what the brain holds and covers
 
-Two coverage numbers, both taken from what the platform returned rather than recomputed:
+The report states, per module and as **conclusions with references**, what the brain holds
+about that code: the considerations that cite it, each with its confirmed or proposed state
+and the cards, files and documents behind it. The brain's answer is a set of conclusions with
+references, not a graph and not a file inventory, and the report is no more than that.
 
-1. **Uncovered modules and files** — the `uncovered[]` entries from the **coverage pass**
-   (`include_proposed: false`), rolled up per module. These are the parts of the system
-   nothing a human has confirmed explains. Name the pass in the report; a coverage figure
-   whose `include_proposed` setting is not stated cannot be compared with the next run's.
-2. **Unanchored requirements** — items the brain holds whose anchors resolve to nothing in
-   this repository (the `unresolved[]` markers). They are requirements about code that
-   moved, was renamed, or was deleted.
+Two things come from the answers and are not recomputed:
+
+1. **The module's `coverage` sentence**, verbatim. A module whose answer was `composed:
+   false` is listed as "listed, not composed" with its `reason`, and the records the answer
+   listed are named as found, not cited.
+2. **Unanchored requirements** the brain holds, as far as the answers show: a consideration
+   about a path that is not in this repository's inventory. They are requirements about code
+   that moved, was renamed, or was deleted.
 
 Do not build a second coverage engine beside the platform's. For documents, the platform's
 own gap analysis is the source — cite it, do not re-derive it.
 
 ## Step 5: Write the drafts back
 
-For every derived requirement, call `mcp__Fairmind__Brain_record_requirement` with:
+For every derived requirement, call `mcp__Fairmind__Brain_tell` with `intent: "need"` and:
 
 | field | value |
 |---|---|
+| `repository` | the bound `repository_id` |
 | `project` | the bound `project_id` |
-| `req_type` | `functional` or `technical` — this skill never derives a `need` or a `user_story` (see Step 3); for one of those, load `brain-new-requirement` instead |
-| `title` / `text` | the requirement as drafted |
-| `natural_key` | **`<module>:<slug of the title>`** — lowercase, non-alphanumerics to `-` |
-| `anchors` | at least one; `file_path` plus `repo_ref` (the bound `repository_id`), `repo_ref_scheme: "code-ingestion"`, `symbol_name` / `symbol_type` / `start_line_hint` where known |
-| `precedent_refs` | node ids of the brain records the draft rests on |
-| `refines` | `[{"node_id": <node_id>}]` — the parent need or user story's `node_id`, when the item sits under one |
-| `evidence` | short quotes or links that justify the wording |
-| `agent` | the label identifying this run |
+| `title` | **`<module> · <the requirement>`**, on one line, short. The brain identifies a record by its title: the same module and wording find their own draft on a rerun, and a renamed module is a new record |
+| `summary` | whether it is functional or technical, the requirement as drafted, its confidence (anchored to code, or inferred) and the precedents it rests on with their states. At most 1000 characters; the door refuses a longer text and never cuts it, so a requirement that needs more is two |
+| `files` / `functions` | at least one of them: repo-relative paths, and `"<path>::<name>"` per symbol |
+| `documents` | `[{"url": ..., "title": ..., "summary": ...}]` for a document it rests on and has a link — at most ten related items in all |
+| `session_ref` | `"${CLAUDE_SESSION_ID}"` |
+| `agent` | `brain-rebuild-requirements` |
 
-**`refines` takes the parent's `node_id`, never its natural key.** The platform stores a
-transformed form of the natural key you send, so a raw natural-key reference silently fails
-to resolve — the write reports success but the edge is never built. Every parent this skill
-could refine already came back from a Step 2 read with its `node_id` attached; use that value,
-and use the natural key only for the report's human-readable text.
+This skill never derives a need or a user story (see Step 3); for one of those, load
+`brain-new-requirement` instead. It sends no requirement type, key, parent reference, anchor
+or precedent list: the brain decides what kind of record each item is and links it to code
+and to what it rests on when it places it, and a report that carries a field it does not take
+is refused.
 
-**The natural key is what makes a rerun converge**, and it is supplied by the client — the
-platform never synthesizes one. Same module, same title, same key, same node: a second run
-updates its own drafts instead of minting duplicates. Derive the slug deterministically and
-write the key into the report so the next run can reproduce it.
+**Read what comes back.** Report the `state` as the answer gives it, never as you expect it,
+with the `node_id`:
+
+- `proposed` — recorded, and waiting for a person in the review queue.
+- `duplicate` — the same requirement was already there and **nothing changed**. Report it that
+  way, never as written.
+- `conflict` — a record with this title exists and says something different. **Nothing was
+  overwritten.** Show the person the difference; on a yes the draft is sent again, whole, with
+  `revises` set to the `node_id` the answer returned.
+- With `documents`, each `related` entry has its own `state`: `created`, `updated`,
+  `unchanged` or `proposed` is linked; `unavailable`, `retry` and `over_cap` are not — name
+  the document and its state.
+
+A report the brain **refused** (`{'status': 'refused', 'reason': ..., 'message': ...}`) has
+words the brain did not accept — an empty title, a title or text over its cap. Fix the draft
+and send it once more; a draft refused twice is reported and skipped. "No such document" on a
+`documents` entry means the id is not one this key can use: send the report once more without
+that document and say so in the report. A refusal that names a field of the report's **shape**
+is different: say "the plugin and the brain
+disagree on the report's shape — update the plugin", and do not send it again.
 
 **Two hard rules, no exceptions:**
 
-- **Never call `mcp__Fairmind__Brain_set_status` to confirm anything**, and never present a
-  draft as confirmed. `review_state` is always `proposed`; a human confirms in the review
-  queue.
-- **When the response is `revision_proposed`**, the natural key hit a record a human already
-  confirmed. The record was left untouched and a revision proposal was filed. Report the
-  `proposal_id` and move on — do not retry, and do not route around it with a different key.
+- **Never send a status, a `retract` or a `same_as` to confirm anything**, and never present
+  a draft as confirmed. The recorded `review_state` is always `proposed`; a human confirms in
+  the review queue.
+- **A partial write is a normal outcome and is reported as one:** "wrote 14 of 37, resume at
+  *billing · Invoices are issued monthly*" is usable; "some drafts were recorded" is not.
 
 Then write the markdown report to **`docs/reports/brain-rebuild-<YYYY-MM-DD>.md`** in the
 repository being rebuilt (see `references/report-template.md`). This is a file in the user's
@@ -231,9 +246,9 @@ Two of those counts are about **trust**, and they are the ones that stop a secon
 as progress it did not make:
 
 - **Drafted** — what this run recorded. Every one of them is `proposed`.
-- **Already confirmed by a human** — among the items the module context calls returned, how
-  many carry `review_state: confirmed`. On a first run this is `0`; print the `0` rather than
-  omitting the line, because a missing number reads as an unmeasured one.
+- **Already confirmed by a human** — among the considerations the module answers returned, how
+  many are `confirmed`. On a first run this is `0`; print the `0` rather than omitting the
+  line, because a missing number reads as an unmeasured one.
 
 Print both. "37 drafted, 0 confirmed" is the true state of a first run, and it is a different
 sentence from "37 requirements recovered".
@@ -249,34 +264,35 @@ sentence from "37 requirements recovered".
 - Repository: {repository_name} (catalog id {repository_id}), branch {repository_branch}
 - Project: {project_name} ({project_id})
 - Modules: {n} | Files inventoried: {n}
-- Brain freshness: last synced {last_synced_at} | sync state {sync_state} | graph {available|unavailable}
+- Precedents: {checked | not checked: {why}} | Modules not asked: {list or none}
 
 ## Per module
 ### {module}
+**What the brain holds about this code** — {coverage sentence, verbatim | listed, not composed: {reason}}
+- {conclusion} ({confirmed | proposed, not yet confirmed}) — references: {title and id of each card, file, document}
+
 **Functional**
-- {FR title} — anchors: {path}:{symbol} | precedents: {node_id} ({confirmed|proposed, not yet confirmed}) | confidence: {anchored|semantic|inferred}
+- {FR title} — files: {path}:{symbol} | precedents: {title} ({id}) ({confirmed|proposed, not yet confirmed}) | confidence: {anchored|inferred}
 
 **Technical**
-- {TR title} — anchors: {path} | precedents: {node_id} ({confirmed|proposed, not yet confirmed}) | confidence: {…}
+- {TR title} — files: {path} | precedents: {title} ({id}) ({confirmed|proposed, not yet confirmed}) | confidence: {…}
 
 **Contradictions (listed, not resolved)**
-- brain says {…} ({node_id}) — code does {…} ({path}:{symbol})
+- brain says {…} ({id}) — code does {…} ({path}:{symbol})
 
-**Retired or superseded, do not re-specify**
-- {title} — {retired|superseded} because {reason} ({node_id})
+**Removed or replaced, do not re-specify**
+- {title} — {removed|replaced} because {reason, as recorded} ({id})
 
 ## Coverage
-- Uncovered files, coverage pass (include_proposed: false — human-confirmed knowledge only): {n} — {list or "see appendix"}
-- Uncovered files, evidence pass (include_proposed: true — drafts included): {n} {on a rerun, "identical, so the coverage figure counts this run's own drafts"}
-- Unanchored requirements (anchors resolve to nothing here): {n} — {list}
-- Resolution tiers: extracted {n} | inferred {n} | ambiguous {n} | unresolved {n} | semantic {n}
+- Per module, the brain's own coverage sentence, above — never recomputed here.
+- Unanchored requirements (about paths that resolve to nothing here): {n} — {list}
 
 ## Yield
-- Drafts recorded (all `proposed`): {n} (functional {n}, technical {n})
-- Already confirmed by a human (`review_state: confirmed` among what the module context calls returned): {n} — 0 on a first run
-- With ≥1 resolving code anchor: {n} / {n}
+- Drafts told (all `proposed`): {n} (functional {n}, technical {n})
+- Already confirmed by a human (`confirmed` among what the module answers returned): {n} — 0 on a first run
+- With ≥1 file or function: {n} / {n}
 - With ≥1 brain precedent: {n} / {n} — of which unconfirmed proposals: {n}
-- Revision proposals filed (key already confirmed by a human): {n}
+- Answered `duplicate`: {n}; answered `conflict`: {n}
 - Not written (refused / failed): {n}
 - Report written to: docs/reports/brain-rebuild-{date}.md
 
@@ -292,7 +308,7 @@ Confirm or reject each draft in the review queue — this skill confirms nothing
 - **For implementation** against the confirmed set, load `fairmind-context`, then
   `fairmind-tdd`.
 - **Rerun after confirmation** to pick up the module boundaries the human corrected — the
-  natural keys make the second pass converge rather than duplicate.
+  same titles make the second pass find the same drafts rather than duplicate them.
 
 ## Error Handling
 
@@ -300,28 +316,32 @@ Confirm or reject each draft in the review queue — this skill confirms nothing
 user at `/fairmind-connect`. Do not fall back to reading local files and calling the result
 a reconstruction — say plainly that the brain is where the *why* lives.
 
-**No `mcp__Fairmind__Brain_*` tools in the tool list:** the connected server predates the
-**Brain-1** release. Name that release, say the `mcp__Fairmind__Studio_*` and
+**No `mcp__Fairmind__Brain_tell` in the tool list:** the connected server predates the
+platform release that serves it. Name that release, say the `mcp__Fairmind__Studio_*` and
 `mcp__Fairmind__Insights_*` tools are unaffected, and stop.
+
+**An MCP error result on `Brain_tell`:** the brain may not offer `Brain_tell` yet, or the
+plugin and the brain disagree on the report's shape. Say so and stop; sending it again
+changes nothing.
 
 **`{'status': 'throttled', ...}`:** the tenant's daily brain-write quota is spent. **Stop
 immediately.** Report how many drafts were written, which module the run reached, and the
-natural keys still pending, so the next run resumes there. Never retry in a loop — every
-attempt is refused and the refusals are counted against the tenant.
+titles still pending, so the next run resumes there. Never retry in a loop — every attempt is
+refused and the refusals are counted against the tenant.
 
-**`{'retryable': True}`:** the quota service itself was unreachable. One retry is
-reasonable; a second refusal is an outage — report it and stop.
+**`{'retryable': True}`:** the write could not be completed right now — an erasure in
+flight, or the store unreachable. One retry is reasonable; a second refusal is an outage —
+report it and stop.
 
 **A refusal naming an unset configuration key:** provisioning, not a bug in the run. Quote
 the key name verbatim and stop; someone with platform access has to set it for this tenant.
 
-**`revision_proposed`:** expected, not an error — see Step 5. Count it, name the
-`proposal_id`, continue with the next draft.
+**An access refusal:** the key, or the person behind it, may not write to this project. Say
+so and stop; retrying changes nothing.
 
 **A module with no brain records at all:** that is a finding, not a failure. It belongs in
-the uncovered section. Derive from code if the user asks, and mark every such item as
-inferred.
+the report as a module the brain holds nothing about (`composed: false`, `nothing_found`).
+Derive from code if the user asks, and mark every such item as inferred.
 
-**A repository whose sync state is stale:** proceed, and put the staleness figures at the
-top of the report. A reconstruction from a stale graph is a reconstruction of an older
-system.
+**A repository whose code graph is stale:** proceed, and say so at the top of the report. A
+reconstruction from a stale graph is a reconstruction of an older system.

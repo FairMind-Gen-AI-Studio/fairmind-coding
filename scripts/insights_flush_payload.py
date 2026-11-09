@@ -97,6 +97,7 @@ one standing falsely. Stdlib only.
 import argparse
 from datetime import datetime, timezone
 import hashlib
+import contextlib
 import json
 import math
 import os
@@ -116,6 +117,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _binding  # noqa: E402
+import _tell_report  # noqa: E402 — the Brain_tell report building blocks
 import _plugin_policy  # noqa: E402 — the `brain` switch, read at the PRODUCER
 import audit_run_meta  # noqa: E402 — reused for normalize_git_remote + git helpers + atomic write
 import loop_ledger  # noqa: E402 — reused for the ledger path/reader + the loop_id key formula
@@ -2931,8 +2933,9 @@ def build_decisions_batches(cwd, base=None):
     a list of batches, none of them empty.
 
     ONE BATCH PER ATTRIBUTION. Both decision doors (`Insights_record_agent_
-    decisions`, `Brain_record_decision`) stamp a batch's `session_ref`/
-    `task_ref` onto EVERY row they store and read no attribution off a row,
+    decisions`, `Brain_tell`) take a batch's `session_ref`/
+    `task_ref` as the attribution of every row it holds (the brain lane copies
+    them onto each report) and read no attribution off a row,
     while the ledger is shared by every run that ever wrote to it in this
     checkout. So the rows appended since the run `active-context.json` names
     was opened travel in one batch under its refs, and every earlier pending
@@ -3530,52 +3533,384 @@ def _is_brain_decision(row):
     return _nonempty_str(row.get("kind")) in BRAIN_DECISION_KIND
 
 
-def build_brain_batches(cwd, base=None):
-    """The `Brain_record_decision` payloads: the decisions of
-    `.fairmind/insights/decisions.jsonl` whose kind is one of the six
-    (`BRAIN_DECISION_KIND`), and nothing else, split into the same
-    batches as `build_decisions_batches` (that door stamps a batch's refs onto
-    every row too) with any batch the filter empties dropped.
+#: The tool every loop-lane brain report is sent through.
+BRAIN_TOOL = "Brain_tell"
 
-    It is `build_decisions_batches` filtered, not a second projection, and that is
-    deliberate rather than convenient: `fm-insights.decision/2` is the contract
-    BOTH doors take — the brain's `decisions` rows carry the same `decisionId`,
-    `ts`, `agent`, `kind`, `title`, `rationale`, `files`, `functions`, under the
-    same batch-level `repository`/`git_remote`/`session_ref`/`task_ref`. A
-    separate projection here would be a second place for the wire shape to drift
-    from the one the conformance tests pin.
+#: Why a ledger row is never sent, and why an issue is not.
+BRAIN_NOT_SENDABLE_REASONS = ("title_unusable", "rationale_missing")
+BRAIN_ISSUE_NOT_SENDABLE_REASONS = ("title_too_long", "task_ref_missing",
+                                    "title_collision")
 
-    The filter is the whole difference. Every decision an agent takes goes to
-    Agentic Insights; only the ones typed with one of the six kinds are sent as
-    company knowledge, and they land taken. A loop produces tens of decisions
-    and the brain is not a transcript.
+#: The reason a row of a loop that can still reach its human gate is withheld.
+BRAIN_HELD_REASON = "loop_open"
 
-    The keys added to a row are `decided_by` (`BRAIN_DECIDED_BY`) and `origin`
-    (`BRAIN_ORIGIN`), set on a fresh copy so the shared row and the insights
-    door's rows stay as they were built.
-    """
-    batches = build_decisions_batches(cwd, base)
-    for batch in batches:
-        batch["decisions"] = [dict(row, decided_by=BRAIN_DECIDED_BY,
-                                   origin=BRAIN_ORIGIN)
-                              for row in batch["decisions"]
-                              if _is_brain_decision(row)]
-    return [batch for batch in batches if batch["decisions"]]
+#: The loop statuses from which a human approval can still arrive. A blocked
+#: loop needs a human to resume it first, so its rows are not withheld.
+_BRAIN_OPEN_STATUSES = ("running", "passed_pending_human")
+
+#: The human-gate verdicts that approve a round.
+_APPROVING_VERDICTS = ("approved", "approved_with_changes_applied_first")
 
 
-def pending_brain(cwd, base=None):
-    """The brain batches filtered to rows not yet in the cursor, or None when
-    there is nothing to send.
+class GateNotApproved(Exception):
+    """`--emit brain --gate-approved` was asked for a round no human approved."""
+
+
+def _brain_title(text, decision_id):
+    """The one-line title of a decision report: the ledger text when it fits
+    the title and key caps whole, else the text cut at a word and tagged with
+    16 hex of the ledger id, so two long rows sharing a prefix keep two keys.
+    None when the text holds no letter or digit to key on."""
+    folded = _tell_report.one_line(text)
+    slug_max = _tell_report.KEY_SLUG_MAX
+    if folded and _tell_report.fit_title(text, slug_max=slug_max) == folded:
+        return folded
+    return _tell_report.fit_tagged(
+        text, "log " + decision_id.split(":")[-1][:16], slug_max=slug_max)
+
+
+def _brain_report(row, batch):
+    """(report arguments, None) or (None, reason) for one wire decision row of
+    `batch`. Never carries `kind`, `decisionId` or a timestamp: the brain
+    decides what a decision is, the client says what happened."""
+    title = _brain_title(row.get("title"), row["decisionId"])
+    if title is None:
+        return None, "title_unusable"
+    summary = _tell_report.fit_text(row.get("rationale"), _tell_report.TEXT_MAX)
+    if summary is None:
+        return None, "rationale_missing"
+    args = {"intent": "decision", "repository": batch["repository"],
+            "title": title, "summary": summary,
+            "origin": BRAIN_ORIGIN, "decided_by": BRAIN_DECIDED_BY}
+    for key, value in (("git_remote", batch.get("git_remote")),
+                       ("project", batch.get("project")),
+                       ("session_ref", batch.get("session_ref")),
+                       ("task_ref", batch.get("task_ref")),
+                       ("agent", row.get("agent"))):
+        ref = _tell_report.fit_ref(value) if isinstance(value, str) else None
+        if ref:
+            args[key] = ref
+    files = _tell_report.fit_files(
+        [f for f in row.get("files") or () if f != OUTSIDE_REPO_TARGET])
+    if files:
+        args["files"] = files
+    functions = _tell_report.fit_functions(row.get("functions"))
+    if functions:
+        args["functions"] = functions
+    return args, None
+
+
+def _brain_loop(cwd, base=None):
+    """(base path, loop-state) the brain lane reads its gate facts from."""
+    root = _git_toplevel(cwd)
+    base_r = _resolve_base(root, base)
+    return base_r, _as_dict(_read_json(os.path.join(cwd, base_r, "loop-state.json"), {}))
+
+
+def _this_run_decision_ids(cwd):
+    """Ids of the ledger rows appended since the run `active-context.json`
+    names was opened; empty when no mark says which rows those are."""
+    root = _git_toplevel(cwd)
+    lines = list(loop_open.ledger_lines(_decisions_path(cwd)))
+    start = _run_start_line(_active_context(root), len(lines))
+    if start is None:
+        return set()
+    return {_decision_id(r) for r in _parse_jsonl_lines(lines[start:])
+            if isinstance(r, dict)}
+
+
+def _gate_verdict(state):
+    """(loop identity, round) the human approved in `state`, or None when the
+    approval cannot be tied to a round (a loop gated before the round index
+    existed). Raises `GateNotApproved` when there is no approval to stand on:
+    the loop is not at its human gate, no verdict was recorded, the last
+    verdict is not an approval, or it judged another round."""
+    status = state.get("status")
+    if status != "passed_pending_human":
+        raise GateNotApproved("the loop is %r, not passed_pending_human"
+                              % (status,))
+    lifecycle = _lifecycle(state)
+    rows = lifecycle.get("human_gate")
+    last = rows[-1] if isinstance(rows, list) and rows and isinstance(rows[-1], dict) else None
+    if last is None:
+        raise GateNotApproved("no human-gate verdict is recorded; run "
+                              "run_gate_checks.py --human-gate first")
+    if last.get("verdict") not in _APPROVING_VERDICTS:
+        raise GateNotApproved("the last human-gate verdict is %r, not an approval"
+                              % (last.get("verdict"),))
+    round_ = _as_dict(lifecycle.get("gate_green")).get("iteration_n")
+    if isinstance(round_, bool) or not isinstance(round_, int):
+        return None
+    if last.get("after_iteration_n") != round_:
+        raise GateNotApproved("the last verdict judged round %r, not the gate's "
+                              "round %r" % (last.get("after_iteration_n"), round_))
+    loop = _nonempty_str(_as_dict(_as_dict(state.get("budget")).get("spent"))
+                         .get("first_armed_at"))
+    return (loop, round_) if loop else None
+
+
+def _gate_path(cwd):
+    return os.path.join(cwd, ".fairmind", "insights-brain-gate.json")
+
+
+def _read_gate_entries(cwd):
+    data = _read_json(_gate_path(cwd), {})
+    entries = data.get("entries") if isinstance(data, dict) else None
+    return [e for e in entries or () if isinstance(e, dict)]
+
+
+def _standing_approved_ids(cwd, base_r, state):
+    """The ids a standing gate-approval entry holds for the round the loop-state
+    CURRENTLY has approved; empty when the verdict was corrected, the loop was
+    re-armed or no entry matches."""
+    try:
+        verdict = _gate_verdict(state)
+    except GateNotApproved:
+        return set()
+    if verdict is None:
+        return set()
+    loop, round_ = verdict
+    ids = set()
+    for entry in _read_gate_entries(cwd):
+        if (entry.get("state"), entry.get("loop"), entry.get("round")) == (base_r, loop, round_):
+            ids.update(i for i in entry.get("ids") or () if isinstance(i, str))
+    return ids
+
+
+def _entry_is_live(cwd, entry):
+    """Does the loop-state an entry names still carry its loop and round?"""
+    state_rel = entry.get("state")
+    if not isinstance(state_rel, str):
+        return False
+    state = _as_dict(_read_json(os.path.join(cwd, state_rel, "loop-state.json"), {}))
+    loop = _as_dict(_as_dict(state.get("budget")).get("spent")).get("first_armed_at")
+    round_ = _as_dict(_lifecycle(state).get("gate_green")).get("iteration_n")
+    return (loop, round_) == (entry.get("loop"), entry.get("round"))
+
+
+@contextlib.contextmanager
+def _gate_lock(cwd):
+    """Exclusive lock around the gate file's read-merge-write, so two approvals
+    in one checkout both land."""
+    try:
+        import fcntl  # noqa: PLC0415 — absent off posix
+    except ImportError:
+        fcntl = None
+    path = os.path.join(cwd, ".fairmind", "insights-brain-gate.lock")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a") as handle:
+        if fcntl is not None:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def _record_gate_entry(cwd, base_r, loop, round_, ids):
+    """Merge `ids` into the entry for (state, loop, round) and drop every entry
+    whose loop-state no longer carries its loop and round."""
+    with _gate_lock(cwd):
+        entries = [e for e in _read_gate_entries(cwd) if _entry_is_live(cwd, e)]
+        key = (base_r, loop, round_)
+        for entry in entries:
+            if (entry.get("state"), entry.get("loop"), entry.get("round")) == key:
+                entry["ids"] = sorted(set(entry.get("ids") or ()) | set(ids))
+                break
+        else:
+            entries.append({"state": base_r, "loop": loop, "round": round_,
+                            "ids": sorted(set(ids))})
+        audit_run_meta._atomic_write_json(_gate_path(cwd), {"entries": entries})
+
+
+def build_brain_reports(cwd, base=None, *, approved=None):
+    """The `Brain_tell` reports for the decisions whose kind is one of the six
+    (`BRAIN_DECISION_KIND`), one per ledger row, in ledger order:
+    `{"reports": [{decision_id, tool, arguments}], "not_sendable":
+    [{decision_id, reason}]}`.
+
+    The rows are `build_decisions_batches`' rows, so the wire projection of
+    `files`/`functions` and the batch routing are the insights door's. A row is
+    `gate_approved` only when `approved` (default: the ids a standing
+    gate-approval entry holds) names it. Withholding rows of an open loop is
+    `pending_brain`'s decision, not this builder's."""
+    if approved is None:
+        base_r, state = _brain_loop(cwd, base)
+        approved = _standing_approved_ids(cwd, base_r, state)
+    reports, not_sendable = [], []
+    for batch in build_decisions_batches(cwd, base):
+        for row in batch["decisions"]:
+            if not _is_brain_decision(row):
+                continue
+            args, reason = _brain_report(row, batch)
+            if args is None:
+                not_sendable.append({"decision_id": row["decisionId"], "reason": reason})
+                continue
+            if row["decisionId"] in approved:
+                args["gate_approved"] = True
+            reports.append({"decision_id": row["decisionId"], "tool": BRAIN_TOOL,
+                            "arguments": args})
+    return {"reports": reports, "not_sendable": not_sendable}
+
+
+def _brain_routing(cwd):
+    root = _git_toplevel(cwd)
+    ctx = _active_context(root)
+    git_remote = _git_remote(cwd)
+    return {"repository": _bound_repository(ctx, git_remote) or os.path.basename(root),
+            "git_remote": git_remote, "project": _project(ctx)}
+
+
+def _issue_title(ref, label):
+    """`<ref> · <label>` when it fits whole, else `<label> · task <16 hex of
+    sha256(ref)>` when that does; None otherwise. The ref is never cut: a cut
+    ref would put two tasks on one key."""
+    slug_max = _tell_report.ITEM_KEY_SLUG_MAX
+
+    def whole(text):
+        folded = _tell_report.one_line(text)
+        return folded if _tell_report.fit_title(text, slug_max=slug_max) == folded else None
+
+    full = whole("%s · %s" % (ref, label))
+    if full:
+        return full
+    return whole("%s · task %s" % (label, hashlib.sha256(ref.encode("utf-8")).hexdigest()[:16]))
+
+
+def _criteria_texts(state, check_id=None):
+    out = []
+    for crit in _as_dict(state.get("contract")).get("criteria") or ():
+        if not isinstance(crit, dict):
+            continue
+        text = _tell_report.clean_text(crit.get("text"))
+        disposition = crit.get("disposition")
+        named = (disposition.partition(":")[2].strip()
+                 if isinstance(disposition, str) and ":" in disposition else None)
+        if text and text not in out and (check_id is None or named == check_id):
+            out.append(text)
+    return out
+
+
+def _unevaluated_check_ids(state):
+    """(id, why) for every check the gate did not evaluate: quarantined ones
+    first, then those that are not admitted."""
+    import run_gate_checks  # noqa: PLC0415 — the one definition of "admitted"
+    checks = [c for c in state.get("checks") or () if isinstance(c, dict)]
+    found, seen = [], set()
+    for q in state.get("quarantine") or ():
+        qid = _nonempty_str(q.get("id")) if isinstance(q, dict) else None
+        if qid and qid not in seen:
+            seen.add(qid)
+            found.append((qid, "quarantined"))
+    _admitted, pending = run_gate_checks.admitted_checks(dict(state, checks=checks))
+    for c in pending:
+        cid = _nonempty_str(c.get("id"))
+        if cid and cid not in seen:
+            seen.add(cid)
+            found.append((cid, "not admitted"))
+    return found
+
+
+def build_brain_issues(state, routing):
+    """(issues, not_sendable) filed at a loop's approved close, from
+    `loop-state.json` alone: one `problem` per check the gate did not evaluate
+    and one when the last completeness review recorded gaps. The wording is
+    the contract's criteria, never a reviewer's own text."""
+    state = _as_dict(state)
+    ref = _tell_report.one_line(_as_dict(state.get("target")).get("ref"))
+    wanted = []
+    for cid, why in _unevaluated_check_ids(state):
+        texts = _criteria_texts(state, cid)
+        wanted.append(("check:" + cid, "check %s not green at close" % cid,
+                       "\n".join(texts) or "The gate did not evaluate check %s (%s)." % (cid, why)))
+    rows = _lifecycle(state).get("completeness")
+    last = rows[-1] if isinstance(rows, list) and rows and isinstance(rows[-1], dict) else None
+    if last is not None and last.get("verdict") == "gaps":
+        texts = _criteria_texts(state)
+        wanted.append(("completeness", "completeness gaps at close",
+                       "The completeness review recorded gaps against: " + "\n".join(texts)
+                       if texts else "The completeness review recorded gaps."))
+    issues, not_sendable, used = [], [], set()
+    for issue_id, label, summary in wanted:
+        reason = None
+        title = None
+        if not ref:
+            reason = "task_ref_missing"
+        else:
+            title = _issue_title(ref, label)
+            if title is None:
+                reason = "title_too_long"
+            elif _tell_report.key_slug(title) in used:
+                reason = "title_collision"
+        if reason:
+            not_sendable.append({"issue_id": issue_id, "reason": reason})
+            continue
+        used.add(_tell_report.key_slug(title))
+        args = {"intent": "problem", "repository": routing["repository"],
+                "title": title,
+                "summary": _tell_report.fit_text(summary, _tell_report.TEXT_MAX)}
+        for key, value in (("git_remote", routing.get("git_remote")),
+                           ("project", routing.get("project")),
+                           ("session_ref", state.get("owner_session")),
+                           ("task_ref", ref)):
+            fitted = _tell_report.fit_ref(value) if isinstance(value, str) else None
+            if fitted:
+                args[key] = fitted
+        issues.append({"issue_id": issue_id, "tool": BRAIN_TOOL, "arguments": args})
+    return issues, not_sendable
+
+
+def pending_brain(cwd, base=None, *, gate_approved=False):
+    """The brain payload `{reports, not_sendable, held, issues,
+    issues_not_sendable}` for rows not yet in the cursor, or None when all five
+    are empty.
 
     Keyed on the SAME `decisionId` as the `decisions` category and in its own
-    cursor map, because the two doors are independent: a repository that has
-    flushed its insights has not therefore told the brain anything, and a brain
-    write that failed must stay pending even though the insights call succeeded.
-    """
+    cursor map, because the two doors are independent.
+
+    A plain call WITHHOLDS (`held`) the rows of this run while its loop can still
+    reach an approved gate and no standing entry approves them; held rows are
+    neither sent nor settled. With `gate_approved`, the human's verdict for the
+    round is checked (`GateNotApproved` when there is none), recorded once in
+    the gate file, and the run's rows go `gate_approved: true`. That call is
+    the only reader that writes the gate file."""
     if brain_is_disabled(cwd):
         return None  # the repository declined this route; nothing is pending
-    return _pending_batches(build_brain_batches(cwd, base),
-                            read_cursor(cwd).get("brain") or {})
+    committed = read_cursor(cwd).get("brain") or {}
+    built = build_brain_reports(cwd, base, approved=frozenset())
+    reports = [r for r in built["reports"] if r["decision_id"] not in committed]
+    not_sendable = [r for r in built["not_sendable"] if r["decision_id"] not in committed]
+    base_r, state = _brain_loop(cwd, base)
+    this_run = _this_run_decision_ids(cwd)
+    held, issues, issues_not_sendable = [], [], []
+    if gate_approved:
+        verdict = _gate_verdict(state)
+        if verdict is None:
+            print("insights_flush_payload: the approval cannot be tied to a gate "
+                  "round (no round index or no arming time in loop-state.json); "
+                  "sending without gate_approved", file=sys.stderr)
+            approved = set()
+        else:
+            ids = [r["decision_id"] for r in reports if r["decision_id"] in this_run]
+            if ids:
+                _record_gate_entry(cwd, base_r, verdict[0], verdict[1], ids)
+            approved = _standing_approved_ids(cwd, base_r, state)
+        issues, issues_not_sendable = build_brain_issues(state, _brain_routing(cwd))
+    else:
+        approved = _standing_approved_ids(cwd, base_r, state)
+        if state.get("status") in _BRAIN_OPEN_STATUSES:
+            held_ids = {i for i in this_run if i not in approved}
+            held = [{"decision_id": r["decision_id"], "reason": BRAIN_HELD_REASON}
+                    for r in reports + not_sendable if r["decision_id"] in held_ids]
+            reports = [r for r in reports if r["decision_id"] not in held_ids]
+            not_sendable = [r for r in not_sendable if r["decision_id"] not in held_ids]
+    for report in reports:
+        if report["decision_id"] in approved:
+            report["arguments"]["gate_approved"] = True
+    out = {"reports": reports, "not_sendable": not_sendable, "held": held,
+           "issues": issues, "issues_not_sendable": issues_not_sendable}
+    return out if any(out.values()) else None
 
 
 def pending_audit(cwd, base=None, advise=False):
@@ -3854,6 +4189,17 @@ def _emit_summary(out, path, total_bytes):
 # CLI
 # ---------------------------------------------------------------------------
 
+def _sent_ids(category, value):
+    """The ledger ids this emit handed its caller to settle: every decision of
+    every `decisions` batch; for `brain`, the reports and the rows that can
+    never be sent. Held rows are not in it."""
+    if category == "brain":
+        value = value or {}
+        return [r["decision_id"] for key in ("reports", "not_sendable")
+                for r in value.get(key) or ()]
+    return [d["decisionId"] for batch in (value or []) for d in batch["decisions"]]
+
+
 def _categories(spec):
     return set(_CATEGORY_ORDER) if spec == "all" else {spec}
 
@@ -3939,7 +4285,14 @@ def main(argv=None):
                               "output: a Bash tool result is capped at 30,000 bytes and a "
                               "real repo's `--emit all` already exceeds it. Without --out, "
                               "the payload still goes to stdout exactly as before.")
+    parser.add_argument("--gate-approved", action="store_true",
+                         help="with `--emit brain`: the human approved this gate round. "
+                              "Checks the recorded verdict (exit 2 when there is none), "
+                              "records the approval once per round and also emits the "
+                              "loop's issues")
     args = parser.parse_args(argv)
+    if args.gate_approved and args.emit != "brain":
+        parser.error("--gate-approved is only valid with --emit brain")
 
     cwd = args.cwd or os.getcwd()
 
@@ -3964,6 +4317,13 @@ def main(argv=None):
         # returns the WORKTREE toplevel, which is the anchor `_wire_target`
         # documents and the same one the gate's attribution uses.
         repo_root = _git_toplevel(cwd) if "loop" in cats else None
+        try:
+            brain_out = (pending_brain(cwd, args.base, gate_approved=args.gate_approved)
+                         if "brain" in cats else None)
+        except GateNotApproved as exc:
+            print("insights_flush_payload: --gate-approved refused: %s" % exc,
+                  file=sys.stderr)
+            return 2
         out = {
             "loop": (pending_loop(cwd, args.base, granted_classes=granted_classes,
                                   repo_root=repo_root)
@@ -3971,7 +4331,7 @@ def main(argv=None):
             "decisions": pending_decisions(cwd, args.base) if "decisions" in cats else None,
             "audit": (pending_audit(cwd, args.base, advise=(args.emit == "audit"))
                       if "audit" in cats else None),
-            "brain": pending_brain(cwd, args.base) if "brain" in cats else None,
+            "brain": brain_out,
         }
         if args.out is None:
             # Unchanged default — byte-identical to the previous
@@ -4010,11 +4370,7 @@ def main(argv=None):
         # and no test would catch it (the suite exercises `decisions` only).
         for category in ("decisions", "brain"):
             if category in cats:
-                record_sent_decision_ids(
-                    cwd, category,
-                    [d["decisionId"]
-                     for batch in (out[category] or [])
-                     for d in batch["decisions"]])
+                record_sent_decision_ids(cwd, category, _sent_ids(category, out[category]))
 
     if args.commit:
         cats = _categories(args.commit)

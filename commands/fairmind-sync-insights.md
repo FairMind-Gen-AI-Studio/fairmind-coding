@@ -1,6 +1,6 @@
 ---
 description: Flush any unflushed Agentic Insights payloads (loop stats, agent decisions, harness-audit runs) to project-context and any decisions not yet sent to the company brain, on demand and independent of a loop close
-allowed-tools: Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/insights_flush_payload.py:*), Read, mcp__Fairmind__Insights_record_harness_audit, mcp__Fairmind__Insights_record_loop_stats, mcp__Fairmind__Insights_record_agent_decisions, mcp__Fairmind__Brain_record_decision
+allowed-tools: Bash(python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/insights_flush_payload.py:*), Read, mcp__Fairmind__Insights_record_harness_audit, mcp__Fairmind__Insights_record_loop_stats, mcp__Fairmind__Insights_record_agent_decisions, mcp__Fairmind__Brain_tell
 ---
 
 # fairmind-sync-insights
@@ -59,18 +59,28 @@ whatever is pending.
    - `loop` → `mcp__Fairmind__Insights_record_loop_stats`
    - `decisions` → `mcp__Fairmind__Insights_record_agent_decisions`
    - `audit` → `mcp__Fairmind__Insights_record_harness_audit`
-   - `brain` → `mcp__Fairmind__Brain_record_decision`
+   - `brain` → `mcp__Fairmind__Brain_tell`, one call per `brain.reports[]` entry (check the tool is in your tool list by name first; without it skip `brain`)
 
-   **`decisions` and `brain` are each a list of batches — one call per batch**, with that
+   **`decisions` is a list of batches — one call per batch**, with that
    batch's own `repository`, `git_remote`, `session_ref` and `task_ref`. Decisions recorded
    since the last run opened (its `loop_open.py --repoint`) travel under its refs; every
    earlier pending decision travels in a separate batch whose `session_ref`/`task_ref` are
    `null`. When `active-context.json` has no usable `decisions_start_line` (a context from
    before the mark existed, or one the ledger no longer reaches), nothing says which rows
    are that run's, so **every** pending decision travels in the `null` batch until the next
-   new-task repoint records a mark. Send each exactly so and never merge them: both doors
-   stamp a batch's refs onto every row they store, so one merged call would relabel older
+   new-task repoint records a mark. Send each exactly so and never merge them: the door
+   stamps a batch's refs onto every row it stores, so one merged call would relabel older
    decisions as that run's.
+
+   **`brain` is not a list of batches.** `brain.reports[]` is one ready call per decision,
+   each carrying its own refs: send each `arguments` object as given. Report
+   `brain.not_sendable[]` (rows that can never be sent) and `brain.held[]` (rows of a loop
+   still waiting for its human gate: they stay pending and the loop's own close sends
+   them). Send no issue from here: `brain.issues` is empty without `--gate-approved`.
+   Settle on `confirmed`, `proposed`, `duplicate`, `conflict` (report it with the `node_id`
+   it returned) and on a content refusal. Leave `brain` uncommitted on `unresolved`,
+   `throttled`, `retry`, no answer, `mismatch` and an MCP error result: the plugin and the
+   brain disagree on the report's shape, so tell the person to update the plugin.
 
    ⚠️ **`brain` and `decisions` are the same rows through two different doors, and
    neither is derived from the other.** `brain` carries only the rows the agent typed
@@ -98,7 +108,7 @@ whatever is pending.
 
    Call `--commit loop`, `--commit decisions`, `--commit audit`, `--commit brain`
    individually, one **only after** its own MCP call above has returned success — for
-   `decisions` and `brain`, after **every** batch's call has — never speculatively, never for a
+   `decisions`, after **every** batch's call has, and for `brain`, after every report has settled — never speculatively, never for a
    category whose send errored or did not complete. A failed or partial send leaves that
    category **uncommitted**: it stays on disk exactly as it was and this same command
    picks it up again next run, so nothing is ever silently dropped and nothing is ever
@@ -130,6 +140,11 @@ server-side `Insights_record_*` tools **upsert** — re-sending an already-recor
 close, decision, or audit run is idempotent, never a duplicate. Use this when the cursor
 itself is suspect (corrupted, or you want to re-verify what actually landed server-side)
 rather than trying to hand-edit it.
+
+⚠️ **A backfill re-files brain rows, and the brain tells you what it already holds.** A
+decision the earlier brain door stored is filed once more by `Brain_tell` under its title
+key, and an issue filed under the earlier key gets one second proposed card; a person
+rejects it in the review queue. A decision `Brain_tell` already holds answers `duplicate`.
 
 ## When a send keeps failing — and why the client cannot tell you why
 

@@ -26,10 +26,12 @@ remember is one it would answer again.
 
 WHAT IT NEVER DOES: grant. The partial case returns `updatedInput` with NO
 `permissionDecision`, so the remaining questions still reach the person through
-the normal permission path; the all-answered case returns `deny` with the
-answers as the reason. The grant spelling of a permission decision appears
-nowhere in this file, and a static check in the hook test suite keeps it that
-way.
+the normal permission path; the all-answered case returns `deny` with a
+one-line reason and the answers as additional context, because Claude Code
+shows the person a denial's reason in full (it delivers additional context on a
+denied call since 2.1.110). The grant spelling of a permission decision
+appears nowhere in this file, and a static check in the hook test suite keeps
+it that way.
 
 A question is removed ONLY when the answering decision is both `confirmed` and
 `taken` AND its recorded choice is one of the labels the question offers. The
@@ -80,6 +82,11 @@ _ASKED_AGAIN = "asked again — you overruled the brain's answer earlier this se
 _MODES = _plugin_policy.ANSWER_MODES
 _PERSON_WINS = ("If the person was asked one of these questions anyway, "
                 "their own answer wins over the brain's.")
+#: The denial reason, which Claude Code shows the person as a red hook error and
+#: the model as the tool's error result: one line, worded for both readers.
+_ALL_ANSWERED = _hook_line.line(
+    "Brain", "already answered every question, so none was asked; "
+             "continue with its answers (not an error)")
 _COUNTER_MAX_AGE_S = 7 * 24 * 3600
 _COUNTER_MAX_PRUNE = 200
 _TEXT_LIMIT = 40
@@ -404,13 +411,14 @@ def _build_output(payload, tool_input, questions, verdicts, answered, suggested,
     overrule = _overrule_sentence()
 
     if len(answered) == total:
-        reason = ("Fairmind company brain: every question was already answered by "
-                  "a recorded decision, so none was put to the person:\n"
-                  f"{blocks}\n"
-                  f"Continue with these answers. {_PERSON_WINS} {overrule}")
+        briefing = ("Fairmind company brain: every question was already answered by "
+                    "a recorded decision, so none was put to the person:\n"
+                    f"{blocks}\n"
+                    f"Continue with these answers. {_PERSON_WINS} {overrule}")
         return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                        "permissionDecision": "deny",
-                                       "permissionDecisionReason": reason},
+                                       "permissionDecisionReason": _ALL_ANSWERED,
+                                       "additionalContext": briefing},
                 "systemMessage": system_message}
 
     parts = []
